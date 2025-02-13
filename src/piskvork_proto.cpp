@@ -24,13 +24,13 @@ void piskvorkProtoLoop(agent::Player *player)
             scanf("%d,%d", &x, &y);
             game::Pos pos = {x, y};
             game->move(pos);
-            game::Pos agent_move = player->getMove(game->getBoard(), game->getTurn());
+            game::Pos agent_move = player->getMove(game->getBoard(), game->getTurn(), game->getMoveCount());
             game->move(agent_move);
             cout << agent_move.x << "," << agent_move.y << endl;
         }
         else if (command == "BEGIN")
         {
-            game::Pos agent_move = player->getMove(game->getBoard(), game->getTurn());
+            game::Pos agent_move = player->getMove(game->getBoard(), game->getTurn(), game->getMoveCount());
             game->move(agent_move);
             cout << agent_move.x << "," << agent_move.y << endl;
         }
@@ -44,7 +44,7 @@ void piskvorkProtoLoop(agent::Player *player)
                 game::Pos pos = {x, y};
                 game->move(pos);
             }
-            game::Pos agent_move = player->getMove(game->getBoard(), game->getTurn());
+            game::Pos agent_move = player->getMove(game->getBoard(), game->getTurn(), game->getMoveCount());
             game->move(agent_move);
             cout << agent_move.x << "," << agent_move.y << endl;
         }

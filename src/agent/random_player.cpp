@@ -7,7 +7,7 @@ RandomPlayer::RandomPlayer()
 
 RandomPlayer::~RandomPlayer() {}
 
-game::Pos RandomPlayer::getMove(game::Board board, game::GomokuState turn)
+game::Pos RandomPlayer::getMove(game::Board board, game::GomokuState turn, int moveCount)
 {
     game::Pos pos;
     while (true)

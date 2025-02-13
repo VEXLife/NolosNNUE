@@ -8,7 +8,7 @@ namespace agent
     public:
         RandomPlayer();
         ~RandomPlayer();
-        game::Pos getMove(game::Board board, game::GomokuState turn);
+        game::Pos getMove(game::Board board, game::GomokuState turn, int moveCount);
     };
 }
 
