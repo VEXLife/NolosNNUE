@@ -13,11 +13,15 @@ add_executable(NolosNNUE
     src/agent/player.h
     src/agent/random_player.h
     src/agent/random_player.cpp
+    src/agent/negamax.h
+    src/agent/negamax.cpp
     src/piskvork_proto.cpp
     src/piskvork_proto.h
     src/eval/evaluator.h
     src/eval/classic.h
     src/eval/classic.cpp
+    src/eval/onnx.h
+    src/eval/onnx.cpp
     )
 
 # ONNXRuntime
@@ -40,10 +44,10 @@ if(WIN32)
 endif()
 
 # Copy model file
-# add_custom_command(TARGET NolosNNUE POST_BUILD
-#    COMMAND ${CMAKE_COMMAND} -E copy
-#    "${CMAKE_SOURCE_DIR}/model.onnx"
-#    $<TARGET_FILE_DIR:NolosNNUE>)
+add_custom_command(TARGET NolosNNUE POST_BUILD
+   COMMAND ${CMAKE_COMMAND} -E copy
+   "${CMAKE_SOURCE_DIR}/model.onnx"
+   $<TARGET_FILE_DIR:NolosNNUE>)
 
 set_target_properties(NolosNNUE PROPERTIES OUTPUT_NAME "pbrain-NolosNNUE")
 

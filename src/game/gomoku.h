@@ -35,11 +35,12 @@ namespace game
     {
     public:
         Gomoku(int size);
+        Gomoku(const game::Board &board, const game::GomokuState &turn, const int &moveCount);
         ~Gomoku();
         void reset();
         void move(Pos);
         void undo();
-        bool check();
+        bool check(Pos);
         bool isDone();
         string Gomoku::getPrintBoardStr();
 

@@ -6,9 +6,11 @@ using namespace game;
 
 namespace eval
 {
+    typedef float score_t;
+
     class Evaluator
     {
     public:
-        virtual double evaluate(const Board& board, const GomokuState& turn) = 0;
+        virtual score_t evaluate(const Board& board, const GomokuState& turn) = 0;
     };
 }
