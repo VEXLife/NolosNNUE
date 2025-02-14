@@ -7,9 +7,7 @@ namespace agent
     class Player
     {
     public:
-        Player() {};
-        virtual ~Player() {};
-        virtual game::Pos getMove(game::Board board, game::GomokuState turn, int moveCount) = 0;
+        virtual game::Pos getMove(const game::Board& board, const game::GomokuState& turn, const int& moveCount) = 0;
         string getPlayerInfo()
         {
             return player_info;

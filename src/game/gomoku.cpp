@@ -1,5 +1,3 @@
-#include<vector>
-#include<iostream>
 #include "gomoku.h"
 
 Gomoku::Gomoku(int size) : size(size) {
@@ -32,23 +30,21 @@ void Gomoku::move(Pos pos) {
     turn = opponent(turn);
 }
 
-void Gomoku::print() {
+string Gomoku::getPrintBoardStr() {
+    string res = "";
     for (int i = 0; i < size; i++) {
         for (int j = 0; j < size; j++) {
-            switch (board[i][j]) {
-            case GomokuState::EMPTY:
-                cout << ".";
-                break;
-            case GomokuState::BLACK:
-                cout << "X";
-                break;
-            case GomokuState::WHITE:
-                cout << "O";
-                break;
+            if (board[i][j] == GomokuState::EMPTY) {
+                res += ". ";
+            } else if (board[i][j] == GomokuState::BLACK) {
+                res += "X ";
+            } else {
+                res += "O ";
             }
         }
-        cout << endl;
+        res += "\n";
     }
+    return res;
 }
 
 void Gomoku::undo() {
@@ -85,24 +81,4 @@ bool Gomoku::check() {
 
 bool Gomoku::isDone() {
     return moveCount == size * size || winner != GomokuState::EMPTY;
-}
-
-GomokuState Gomoku::get(Pos pos) {
-    return board[pos.x][pos.y];
-}
-
-GomokuState Gomoku::getTurn() {
-    return turn;
-}
-
-int Gomoku::getMoveCount() {
-    return moveCount;
-}
-
-GomokuState Gomoku::getWinner() {
-    return winner;
-}
-
-vector<vector<GomokuState>> Gomoku::getBoard() {
-    return board;
 }

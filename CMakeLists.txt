@@ -5,7 +5,6 @@ project(my_onnxruntime_project)
 set(CMAKE_CXX_STANDARD 14)
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
-find_package(ONNXRuntime REQUIRED)
 
 add_executable(NolosNNUE
     src/main.cpp
@@ -16,10 +15,21 @@ add_executable(NolosNNUE
     src/agent/random_player.cpp
     src/piskvork_proto.cpp
     src/piskvork_proto.h
+    src/eval/evaluator.h
+    src/eval/classic.h
+    src/eval/classic.cpp
     )
 
+# ONNXRuntime
+find_package(ONNXRuntime REQUIRED)
 include_directories(${ONNXRUNTIME_INCLUDE_DIR})
 target_link_libraries(NolosNNUE PRIVATE ${ONNXRUNTIME_LIBRARY})
+
+# SPDLOG
+add_subdirectory(spdlog)
+include_directories(spdlog/include)
+# Add /utf-8
+target_compile_options(NolosNNUE PRIVATE "/utf-8")
 
 # Copy dlls to the output directory if is Windows
 if(WIN32)
@@ -36,3 +46,6 @@ endif()
 #    $<TARGET_FILE_DIR:NolosNNUE>)
 
 set_target_properties(NolosNNUE PROPERTIES OUTPUT_NAME "pbrain-NolosNNUE")
+
+# _CRT_SECURE_NO_WARNINGS
+target_compile_definitions(NolosNNUE PRIVATE _CRT_SECURE_NO_WARNINGS)
