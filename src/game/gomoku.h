@@ -8,9 +8,9 @@ namespace game
 {
     enum class GomokuState
     {
-        EMPTY,
-        BLACK,
-        WHITE
+        EMPTY = 0,
+        BLACK = 1,
+        WHITE = 2
     };
 
     constexpr GomokuState opponent(GomokuState state)
@@ -23,9 +23,14 @@ namespace game
         int x;
         int y;
 
-        bool operator==(const Pos &other) const
+        constexpr bool operator==(const Pos &other) const
         {
             return x == other.x && y == other.y;
+        }
+
+        string str() const
+        {
+            return string(1, 'a' + x) + to_string(y + 1);
         }
     };
 

@@ -6,12 +6,12 @@
 int ClassicEvaluator::checkDirection(const Board &board, int x, int y, int dx, int dy, const GomokuState &turn)
 {
     int count = 1;
-    int emptyCount = 0;
-    int jumpCount = 0;
+    int empty_count = 0;
+    int jump_count = 0;
     int i;
 
     // Detect chess patterns in the current direction
-    for (i = 1; i < 6; i++)
+    for (i = 1; i < 5; i++)
     {
         int nx = x + dx * i;
         int ny = y + dy * i;
@@ -25,13 +25,13 @@ int ClassicEvaluator::checkDirection(const Board &board, int x, int y, int dx, i
         if (board[nx][ny] == board[x][y])
         {
             count++;
-            jumpCount += emptyCount;
-            emptyCount = 0;
+            jump_count += empty_count;
+            empty_count = 0;
         }
         else if (board[nx][ny] == GomokuState::EMPTY)
         {
-            emptyCount++;
-            if (emptyCount >= 2)
+            empty_count++;
+            if (empty_count >= 2)
             {
                 break;
             }
@@ -42,6 +42,7 @@ int ClassicEvaluator::checkDirection(const Board &board, int x, int y, int dx, i
             break;
         }
     }
+    auto oppo_empty_count = 0;
     for (int j = 1; j <= 6 - i; j++)
     {
         int nx = x - dx * j;
@@ -58,8 +59,8 @@ int ClassicEvaluator::checkDirection(const Board &board, int x, int y, int dx, i
         }
         else if (board[nx][ny] == GomokuState::EMPTY)
         {
-            emptyCount++;
-            if (emptyCount >= 2)
+            oppo_empty_count++;
+            if (oppo_empty_count >= 2)
             {
                 break;
             }
@@ -70,41 +71,26 @@ int ClassicEvaluator::checkDirection(const Board &board, int x, int y, int dx, i
             break;
         }
     }
+    empty_count += oppo_empty_count;
 
     // Check the pattern and return the corresponding score
-    if (board[x][y] == turn)
-    {
-    if (count == 4 && emptyCount == 2)
-        return ME_FOUR_STRAIGHT;
-    else if (count == 4 && emptyCount + jumpCount >= 1)
-        return ME_FOUR_SLEEP;
-    else if (count == 3 && jumpCount == 0 && emptyCount >= 3)
-        return ME_THREE_STRAIGHT;
-    else if (count == 3 && jumpCount >= 1 && emptyCount >= 2)
-        return ME_THREE_JUMP;
-    else if (count == 3 && emptyCount + jumpCount >= 2)
-        return ME_THREE_SLEEP;
-    else if (count == 2 && emptyCount >= 4)
-        return ME_TWO_STRAIGHT;
-    else if (count == 2 && jumpCount >= 1 && emptyCount + jumpCount >= 3)
-        return ME_TWO_JUMP;
-    }else{
-        if (count == 4 && emptyCount == 2)
-            return OPPO_FOUR_STRAIGHT;
-        else if (count == 4 && emptyCount + jumpCount >= 1)
-            return OPPO_FOUR_SLEEP;
-        else if (count == 3 && jumpCount == 0 && emptyCount >= 3)
-            return OPPO_THREE_STRAIGHT;
-        else if (count == 3 && jumpCount >= 1 && emptyCount >= 2)
-            return OPPO_THREE_JUMP;
-        else if (count == 3 && emptyCount + jumpCount >= 2)
-            return OPPO_THREE_SLEEP;
-        else if (count == 2 && emptyCount >= 4)
-            return OPPO_TWO_STRAIGHT;
-        else if (count == 2 && jumpCount >= 1 && emptyCount + jumpCount >= 3)
-            return OPPO_TWO_JUMP;
-    }
-    return 0;
+    auto is_my_turn = (board[x][y] == turn);
+    if (count == 4 && empty_count == 2)
+        return is_my_turn ? ME_FOUR_STRAIGHT : OPPO_FOUR_STRAIGHT;
+    else if (count == 4 && empty_count + jump_count >= 1)
+        return is_my_turn ? ME_FOUR_SLEEP : OPPO_FOUR_SLEEP;
+    else if (count == 3 && jump_count == 0 && empty_count >= 3)
+        return is_my_turn ? ME_THREE_STRAIGHT : OPPO_THREE_STRAIGHT;
+    else if (count == 3 && jump_count >= 1 && empty_count >= 2)
+        return is_my_turn ? ME_THREE_JUMP : OPPO_THREE_JUMP;
+    else if (count == 3 && empty_count + jump_count >= 2)
+        return is_my_turn ? ME_THREE_SLEEP : OPPO_THREE_SLEEP;
+    else if (count == 2 && jump_count == 0 && empty_count >= 4)
+        return is_my_turn ? ME_TWO_STRAIGHT : OPPO_TWO_STRAIGHT;
+    else if (count == 2 && jump_count >= 1 && empty_count + jump_count >= 3)
+        return is_my_turn ? ME_TWO_JUMP : OPPO_TWO_JUMP;
+    else
+        return 0;
 }
 
 // Define a function to evaluate the entire board

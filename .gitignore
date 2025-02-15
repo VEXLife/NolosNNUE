@@ -3,3 +3,4 @@ build/
 include/
 .vscode/
 logs/
+.venv/

@@ -8,18 +8,19 @@ using namespace game;
 namespace eval
 {
     // Define some constants to represent the scores of different chess patterns
-    const int ME_FOUR_STRAIGHT = 1000000; // Live four
-    const int ME_FOUR_SLEEP = 100000;     // Sleeping four
+    // ME_FOUR_* > OPPO_FOUR_STRAIGHT > OPPO_FOUR_SLEEP > ME_THREE_* > OPPO_THREE_*
+    const int ME_FOUR_STRAIGHT = 10000000; // Live four
+    const int ME_FOUR_SLEEP = 10000000;     // Sleeping four
     const int ME_THREE_STRAIGHT = 10000;  // Live three
-    const int ME_THREE_JUMP = 1000;     // Jump three
+    const int ME_THREE_JUMP = 10000;     // Jump three
     const int ME_THREE_SLEEP = 100;      // Sleeping three
     const int ME_TWO_STRAIGHT = 5;     // Live two
     const int ME_TWO_JUMP = 1;          // Jump two
 
-    const int OPPO_FOUR_STRAIGHT = -100000; // Live four
-    const int OPPO_FOUR_SLEEP = -10000;     // Sleeping four
+    const int OPPO_FOUR_STRAIGHT = -1000000; // Live four
+    const int OPPO_FOUR_SLEEP = -100000;     // Sleeping four
     const int OPPO_THREE_STRAIGHT = -1000;  // Live three
-    const int OPPO_THREE_JUMP = -100;     // Jump three
+    const int OPPO_THREE_JUMP = -500;     // Jump three
     const int OPPO_THREE_SLEEP = -10;      // Sleeping three
     const int OPPO_TWO_STRAIGHT = -5;     // Live two
     const int OPPO_TWO_JUMP = -1;          // Jump two

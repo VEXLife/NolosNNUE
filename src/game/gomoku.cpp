@@ -82,6 +82,13 @@ string Gomoku::getPrintBoardStr()
         }
         res += "\n";
     }
+
+    res += "Game code: ";
+    for (auto &it : history)
+    {
+        res += it.str();
+    }
+
     return res;
 }
 
@@ -114,7 +121,7 @@ bool Gomoku::check(Pos pos)
                 break;
             count++;
         }
-        
+
         for (int l = 1; l < 5; l++)
         {
             int x = pos.x - dx[k] * l;

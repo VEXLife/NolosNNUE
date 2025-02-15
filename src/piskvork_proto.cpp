@@ -55,7 +55,7 @@ void piskvorkProtoLoop(agent::Player *player, string logdir)
                     throw std::runtime_error("Game already has a winner");
                 }
                 game->move(pos);
-                logger->info("Got TURN %d,%d", x, y);
+                logger->info("Got TURN {},{}", x, y);
                 game::Pos agent_move = player->getMove(game->getBoard(), game->getTurn(), game->getMoveCount());
                 game->move(agent_move);
                 cout << agent_move.x << "," << agent_move.y << endl;
