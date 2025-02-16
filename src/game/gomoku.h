@@ -47,7 +47,7 @@ namespace game
         void undo();
         bool check(Pos);
         bool isDone();
-        string Gomoku::getPrintBoardStr();
+        string Gomoku::getPrintBoardStr(bool);
 
         GomokuState Gomoku::get(Pos pos) {
             return board[pos.x][pos.y];

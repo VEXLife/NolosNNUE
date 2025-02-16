@@ -43,7 +43,7 @@ void Gomoku::move(Pos pos)
     turn = opponent(turn);
 }
 
-string Gomoku::getPrintBoardStr()
+string Gomoku::getPrintBoardStr(bool show_code)
 {
     string res = "";
     auto last_move = getLastMove();
@@ -83,10 +83,13 @@ string Gomoku::getPrintBoardStr()
         res += "\n";
     }
 
-    res += "Game code: ";
-    for (auto &it : history)
+    if (show_code)
     {
-        res += it.str();
+        res += "Game code: ";
+        for (auto &it : history)
+        {
+            res += it.str();
+        }
     }
 
     return res;

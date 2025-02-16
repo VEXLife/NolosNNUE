@@ -20,4 +20,4 @@ with open(game, "r") as f:
     board_command.append("DONE")
 with open(game.split(".")[0] + ".in", "w") as f:
     f.write('\n'.join(board_command))
-    f.write('\n')
+    f.write('\nEND\n')

@@ -71,23 +71,22 @@ int ClassicEvaluator::checkDirection(const Board &board, int x, int y, int dx, i
             break;
         }
     }
-    empty_count += oppo_empty_count;
 
     // Check the pattern and return the corresponding score
     auto is_my_turn = (board[x][y] == turn);
-    if (count == 4 && empty_count == 2)
+    if (count == 4 && empty_count >= 1 && oppo_empty_count >= 1)
         return is_my_turn ? ME_FOUR_STRAIGHT : OPPO_FOUR_STRAIGHT;
-    else if (count == 4 && empty_count + jump_count >= 1)
+    else if (count == 4 && empty_count + jump_count + oppo_empty_count >= 1)
         return is_my_turn ? ME_FOUR_SLEEP : OPPO_FOUR_SLEEP;
-    else if (count == 3 && jump_count == 0 && empty_count >= 3)
+    else if (count == 3 && jump_count == 0 && empty_count + oppo_empty_count >= 3 && oppo_empty_count >= 1 && empty_count >= 1)
         return is_my_turn ? ME_THREE_STRAIGHT : OPPO_THREE_STRAIGHT;
-    else if (count == 3 && jump_count >= 1 && empty_count >= 2)
+    else if (count == 3 && jump_count >= 1 && empty_count >= 1 && oppo_empty_count >= 1)
         return is_my_turn ? ME_THREE_JUMP : OPPO_THREE_JUMP;
-    else if (count == 3 && empty_count + jump_count >= 2)
+    else if (count == 3 && empty_count + jump_count + oppo_empty_count >= 2)
         return is_my_turn ? ME_THREE_SLEEP : OPPO_THREE_SLEEP;
-    else if (count == 2 && jump_count == 0 && empty_count >= 4)
+    else if (count == 2 && jump_count == 0 && empty_count + oppo_empty_count >= 4)
         return is_my_turn ? ME_TWO_STRAIGHT : OPPO_TWO_STRAIGHT;
-    else if (count == 2 && jump_count >= 1 && empty_count + jump_count >= 3)
+    else if (count == 2 && jump_count >= 1 && empty_count + oppo_empty_count + jump_count >= 3)
         return is_my_turn ? ME_TWO_JUMP : OPPO_TWO_JUMP;
     else
         return 0;

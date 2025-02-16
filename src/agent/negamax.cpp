@@ -1,10 +1,18 @@
 #include "negamax.h"
 
-struct CompareMoveScores
+struct CompareMoveScoresGreater
 {
     bool operator()(const pair<game::Pos, eval::score_t> &a, const pair<game::Pos, eval::score_t> &b)
     {
-        return a.second > b.second; // 这里改为大于号，使得分数小的优先级更高
+        return a.second > b.second;
+    }
+};
+
+struct CompareMoveScoresLess
+{
+    bool operator()(const pair<game::Pos, eval::score_t> &a, const pair<game::Pos, eval::score_t> &b)
+    {
+        return a.second < b.second;
     }
 };
 
@@ -44,8 +52,6 @@ eval::score_t NegamaxPlayer::negamax(
     ZobristKey &zobrist_key,
     vector<Pos> &path)
 {
-    this->searchedNodesCount++;
-
     // Zobrist Table based cutoff
     auto ttEntry = this->transpositionTable->get(zobrist_key);
     if (ttEntry.key == zobrist_key)
@@ -74,6 +80,8 @@ eval::score_t NegamaxPlayer::negamax(
 
     if (depth_left == 0)
     {
+        this->searchedNodesCount++;
+
         auto value = evaluator->evaluate(game_instance->getBoard(), game_instance->getTurn());
 
         ttEntry.score = value;
@@ -85,7 +93,7 @@ eval::score_t NegamaxPlayer::negamax(
         return value;
     }
 
-    priority_queue<pair<game::Pos, eval::score_t>, vector<pair<game::Pos, eval::score_t>>, CompareMoveScores> move_scores;
+    priority_queue<pair<game::Pos, eval::score_t>, vector<pair<game::Pos, eval::score_t>>, CompareMoveScoresLess> move_scores;
     for (int i = 0; i < game_instance->getSize(); i++)
     {
         for (int j = 0; j < game_instance->getSize(); j++)
@@ -199,10 +207,11 @@ game::Pos NegamaxPlayer::getMove(const game::Board &board, const game::GomokuSta
     chrono::high_resolution_clock::time_point start_time = chrono::high_resolution_clock::now();
 
     Pos bestPos;
-    auto maximum = INF;
     for (int current_depth = 0; current_depth <= depth; current_depth++)
     { // Iterative deepening
         eval::score_t bestValue = -INF;
+        auto maximum = INF;
+        auto minimum = -INF;
         Pos new_bestPos;
         auto best_child_path = vector<Pos>();
         for (auto &move_score : move_scores)
@@ -210,7 +219,7 @@ game::Pos NegamaxPlayer::getMove(const game::Board &board, const game::GomokuSta
             updateZobristKey(zobrist_key, move_score.first, GomokuState::EMPTY, game_instance->getTurn());
             game_instance->move(move_score.first);
             logger->debug("Depth: {}, Evaluating move {}", current_depth, move_score.first.str());
-            logger->debug("Current board:\n{}", game_instance->getPrintBoardStr());
+            logger->debug("Current board:\n{}", game_instance->getPrintBoardStr(false));
             if (game_instance->getWinner() == opponent(game_instance->getTurn()))
             {
                 game_instance->undo();
@@ -221,13 +230,18 @@ game::Pos NegamaxPlayer::getMove(const game::Board &board, const game::GomokuSta
             eval::score_t value = -negamax(
                 game_instance,
                 -maximum,
-                INF,
+                -minimum,
                 evaluator,
                 current_depth,
                 zobrist_key,
                 child_path);
             move_score.second = value;
-            logger->debug("Value: {}", value);
+            string pvMoves;
+            for (auto &move : child_path)
+            {
+                pvMoves += move.str();
+            }
+            logger->debug("Value: {}, PV: {}", value, pvMoves);
             game_instance->undo();
             updateZobristKey(zobrist_key, move_score.first, game_instance->getTurn(), GomokuState::EMPTY);
             if (value > bestValue)
@@ -235,6 +249,7 @@ game::Pos NegamaxPlayer::getMove(const game::Board &board, const game::GomokuSta
                 bestValue = value;
                 new_bestPos = move_score.first;
                 best_child_path = child_path;
+                minimum = max(minimum, value);
             }
             if (value >= maximum)
             {
@@ -259,13 +274,13 @@ game::Pos NegamaxPlayer::getMove(const game::Board &board, const game::GomokuSta
             logger->debug("I am bound to win!");
             break;
         }
-        sort(move_scores.begin(), move_scores.end(), CompareMoveScores()); // Sort by score
+        sort(move_scores.begin(), move_scores.end(), CompareMoveScoresGreater()); // Sort by score
     }
 
     // Show statistics
     chrono::high_resolution_clock::time_point end_time = chrono::high_resolution_clock::now();
-    auto duration = chrono::duration_cast<chrono::microseconds>(end_time - start_time).count();
-    logger->debug("Time taken: {} s, searched nodes: {}", duration / 1000, this->searchedNodesCount);
+    auto duration = chrono::duration_cast<chrono::milliseconds>(end_time - start_time).count();
+    logger->debug("Time taken: {} s, searched nodes: {}", 1.0f * duration / 1000, this->searchedNodesCount);
     return bestPos;
 }
 

@@ -60,7 +60,7 @@ void piskvorkProtoLoop(agent::Player *player, string logdir)
                 game->move(agent_move);
                 cout << agent_move.x << "," << agent_move.y << endl;
                 logger->info("Sent {},{}", agent_move.x, agent_move.y);
-                logger->info("CurrentBoard:\n{}", game->getPrintBoardStr());
+                logger->info("CurrentBoard:\n{}", game->getPrintBoardStr(true));
             }
             else if (command == "BEGIN")
             {
@@ -70,7 +70,7 @@ void piskvorkProtoLoop(agent::Player *player, string logdir)
                 game->move(agent_move);
                 cout << agent_move.x << "," << agent_move.y << endl;
                 logger->info("Sent {},{}", agent_move.x, agent_move.y);
-                logger->info("CurrentBoard:\n{}", game->getPrintBoardStr());
+                logger->info("CurrentBoard:\n{}", game->getPrintBoardStr(true));
             }
             else if (command == "BOARD")
             {
@@ -81,6 +81,7 @@ void piskvorkProtoLoop(agent::Player *player, string logdir)
                     cin >> command;
                     if (command == "DONE")
                     {
+                        logger->info("Got DONE");
                         break;
                     }
                     int x, y, turn;
@@ -105,7 +106,7 @@ void piskvorkProtoLoop(agent::Player *player, string logdir)
                 game->move(agent_move);
                 cout << agent_move.x << "," << agent_move.y << endl;
                 logger->info("Sent {},{}", agent_move.x, agent_move.y);
-                logger->info("CurrentBoard:\n{}", game->getPrintBoardStr());
+                logger->info("CurrentBoard:\n{}", game->getPrintBoardStr(true));
             }
             else if (command == "RESTART")
             {
