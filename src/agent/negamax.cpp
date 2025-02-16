@@ -126,6 +126,7 @@ eval::score_t NegamaxPlayer::negamax(
 
     auto best_value = -INF;
     auto best_child_path = vector<Pos>();
+    bool is_first_move = true;
     while (!move_scores.empty())
     {
         auto move_score = move_scores.top();
@@ -133,14 +134,40 @@ eval::score_t NegamaxPlayer::negamax(
         updateZobristKey(zobrist_key, move_score.first, GomokuState::EMPTY, game_instance->getTurn());
         game_instance->move(move_score.first);
         vector<Pos> child_path = {move_score.first};
-        eval::score_t value = -negamax(
-            game_instance,
-            -maximum,
-            -minimum,
-            evaluator,
-            depth_left - 1,
-            zobrist_key,
-            child_path);
+        eval::score_t value;
+        if (is_first_move) {
+            value = -negamax(
+                game_instance,
+                -maximum,
+                -minimum,
+                evaluator,
+                depth_left - 1,
+                zobrist_key,
+                child_path);
+            is_first_move = false;
+        }else{
+            // PV Search: Prove that the first move is the best move
+            value = -negamax(
+                game_instance,
+                -minimum-1,
+                -minimum,
+                evaluator,
+                depth_left - 1,
+                zobrist_key,
+                child_path);
+            if (value > minimum && maximum - minimum > 1)
+            { // Full re-search
+                child_path = {move_score.first};
+                value = -negamax(
+                    game_instance,
+                    -maximum,
+                    -minimum,
+                    evaluator,
+                    depth_left - 1,
+                    zobrist_key,
+                    child_path);
+            }
+        }
         game_instance->undo();
         updateZobristKey(zobrist_key, move_score.first, game_instance->getTurn(), GomokuState::EMPTY);
         if (value > best_value)
@@ -214,6 +241,7 @@ game::Pos NegamaxPlayer::getMove(const game::Board &board, const game::GomokuSta
         auto minimum = -INF;
         Pos new_bestPos;
         auto best_child_path = vector<Pos>();
+        bool is_first_move = true;
         for (auto &move_score : move_scores)
         {
             updateZobristKey(zobrist_key, move_score.first, GomokuState::EMPTY, game_instance->getTurn());
@@ -226,15 +254,42 @@ game::Pos NegamaxPlayer::getMove(const game::Board &board, const game::GomokuSta
                 logger->debug("Found winning move {}, returning. Not showing time taken.", move_score.first.str());
                 return move_score.first;
             }
+
             vector<Pos> child_path = {move_score.first};
-            eval::score_t value = -negamax(
-                game_instance,
-                -maximum,
-                -minimum,
-                evaluator,
-                current_depth,
-                zobrist_key,
-                child_path);
+            eval::score_t value;
+            if (is_first_move) {
+                value = -negamax(
+                    game_instance,
+                    -maximum,
+                    -minimum,
+                    evaluator,
+                    current_depth,
+                    zobrist_key,
+                    child_path);
+                is_first_move = false;
+            }else{
+                value = -negamax(
+                    game_instance,
+                    -minimum-1,
+                    -minimum,
+                    evaluator,
+                    current_depth,
+                    zobrist_key,
+                    child_path);
+                if (value > minimum && maximum - minimum > 1)
+                { // Full re-search
+                    logger->debug("PV search failed, re-searching with full window");
+                    child_path = {move_score.first};
+                    value = -negamax(
+                        game_instance,
+                        -maximum,
+                        -minimum,
+                        evaluator,
+                        current_depth,
+                        zobrist_key,
+                        child_path);
+                }
+            }
             move_score.second = value;
             string pvMoves;
             for (auto &move : child_path)

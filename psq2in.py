@@ -15,7 +15,10 @@ with open(game, "r") as f:
     board_command.append("BOARD")
     turn = 1
     while "-1" != (line := f.readline().strip()):
-        board_command.append(','.join(line.split(',')[0:2] + [str(turn)]))
+        pos = line.split(",")[0:2]
+        x = int(pos[0]) - 1
+        y = int(pos[1]) - 1
+        board_command.append(f"{x},{y},{turn}")
         turn = 3 - turn
     board_command.append("DONE")
 with open(game.split(".")[0] + ".in", "w") as f:

@@ -4,3 +4,7 @@ include/
 .vscode/
 logs/
 .venv/
+uv.lock
+
+# Python
+__pycache__

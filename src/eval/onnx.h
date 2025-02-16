@@ -16,14 +16,18 @@ namespace eval
         score_t evaluate(const Board &board, const GomokuState &turn);
 
     private:
-        std::shared_ptr<Ort::Session> m_session;
-        Ort::RunOptions m_run_options;
-        Ort::MemoryInfo m_memory_info = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU);
-        vector<int64_t> m_input_shape = {1, 1, 15, 15};
-        vector<int64_t> m_policy_shape = {1, 15, 15};
-        vector<int64_t> m_value_shape = {1, 1};
-        const char* m_input_names[1] = {"inputs"};
-        const char* m_output_names[2] = {"softmax_0.tmp_0", "tanh_0.tmp_0"};
+        int64_t initializedBoardSize = 0;
+        Ort::Session session {nullptr};
+        Ort::RunOptions runOptions;
+        Ort::MemoryInfo memoryInfo = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU);
+        const char* inputNames[1] = {"inputs"};
+        const char* outputNames[1] = {"value_head"};
+        std::vector<float> input;
+        std::vector<float> output = {0.0f};
+        std::vector<int64_t> inputShape;
+        std::vector<int64_t> outputShape = {1, 1};
+        std::vector<Ort::Value> inputTensors;
+        std::vector<Ort::Value> outputTensors;
     };
 }
 
