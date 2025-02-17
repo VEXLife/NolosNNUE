@@ -105,6 +105,7 @@ eval::score_t NegamaxPlayer::negamax(
                 if (game_instance->getWinner() == opponent(game_instance->getTurn()))
                 {
                     game_instance->undo();
+                    updateZobristKey(zobrist_key, game::Pos{i, j}, game_instance->getTurn(), GomokuState::EMPTY);
                     path.push_back(game::Pos{i, j});
                     return INF;
                 }
@@ -251,6 +252,7 @@ game::Pos NegamaxPlayer::getMove(const game::Board &board, const game::GomokuSta
             if (game_instance->getWinner() == opponent(game_instance->getTurn()))
             {
                 game_instance->undo();
+                updateZobristKey(zobrist_key, move_score.first, game_instance->getTurn(), GomokuState::EMPTY);
                 logger->debug("Found winning move {}, returning. Not showing time taken.", move_score.first.str());
                 return move_score.first;
             }
