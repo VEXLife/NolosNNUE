@@ -8,10 +8,12 @@ dependencies = [
     "einops>=0.8.1",
     "lightning>=2.5.0.post0",
     "onnx>=1.17.0",
+    "onnxscript>=0.2.0",
     "torch>=2.6.0",
 ]
 
 [project.optional-dependencies]
 train = [
     "tensorboard>=2.6.0",
+    "ipykernel"
 ]

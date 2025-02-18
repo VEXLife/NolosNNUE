@@ -14,6 +14,22 @@
 
 namespace agent
 {
+    struct CompareMoveScoresGreater
+    {
+        bool operator()(const pair<game::Pos, eval::score_t> &a, const pair<game::Pos, eval::score_t> &b)
+        {
+            return a.second > b.second;
+        }
+    };
+
+    struct CompareMoveScoresLess
+    {
+        bool operator()(const pair<game::Pos, eval::score_t> &a, const pair<game::Pos, eval::score_t> &b)
+        {
+            return a.second < b.second;
+        }
+    };
+
     enum TTFlag
     {
         EXACT,
@@ -71,7 +87,7 @@ namespace agent
         ~NegamaxPlayer();
         game::Pos getMove(const game::Board &board, const game::GomokuState &turn, const int &moveCount);
 
-    private:
+    protected:
         int depth, breadth, neighbour_radius;
         eval::Evaluator *evaluator;
         shared_ptr<spdlog::logger> logger;
@@ -81,8 +97,7 @@ namespace agent
             eval::Evaluator *evaluator,
             int depth_left,
             ZobristKey &zobristKey,
-            vector<Pos> &path
-        );
+            vector<Pos> &path);
         bool hasNeighbour(game::Gomoku *game_instance, game::Pos pos, int radius);
 
         TranspositionTable *transpositionTable;

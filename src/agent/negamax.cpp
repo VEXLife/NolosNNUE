@@ -1,21 +1,5 @@
 #include "negamax.h"
 
-struct CompareMoveScoresGreater
-{
-    bool operator()(const pair<game::Pos, eval::score_t> &a, const pair<game::Pos, eval::score_t> &b)
-    {
-        return a.second > b.second;
-    }
-};
-
-struct CompareMoveScoresLess
-{
-    bool operator()(const pair<game::Pos, eval::score_t> &a, const pair<game::Pos, eval::score_t> &b)
-    {
-        return a.second < b.second;
-    }
-};
-
 NegamaxPlayer::NegamaxPlayer(
     int depth,
     int breadth,
@@ -26,15 +10,18 @@ NegamaxPlayer::NegamaxPlayer(
     : evaluator(evaluator), depth(depth), breadth(breadth), neighbour_radius(neighbour_radius)
 {
     this->transpositionTable = new TranspositionTable(transposition_table_size);
-    try
+    if (logdir != "")
     {
-        this->logger = spdlog::basic_logger_mt("NegamaxPlayer", logdir + "negamax.log");
-        this->logger->flush_on(spdlog::level::debug);
-        this->logger->set_level(spdlog::level::debug);
-    }
-    catch (spdlog::spdlog_ex &e)
-    {
-        cout << "ERROR Log file error: " << e.what() << endl;
+        try
+        {
+            this->logger = spdlog::basic_logger_mt("NegamaxPlayer", logdir + "negamax.log");
+            this->logger->flush_on(spdlog::level::debug);
+            this->logger->set_level(spdlog::level::debug);
+        }
+        catch (spdlog::spdlog_ex &e)
+        {
+            cout << "ERROR Log file error: " << e.what() << endl;
+        }
     }
 }
 
@@ -136,7 +123,8 @@ eval::score_t NegamaxPlayer::negamax(
         game_instance->move(move_score.first);
         vector<Pos> child_path = {move_score.first};
         eval::score_t value;
-        if (is_first_move) {
+        if (is_first_move)
+        {
             value = -negamax(
                 game_instance,
                 -maximum,
@@ -146,11 +134,13 @@ eval::score_t NegamaxPlayer::negamax(
                 zobrist_key,
                 child_path);
             is_first_move = false;
-        }else{
+        }
+        else
+        {
             // PV Search: Prove that the first move is the best move
             value = -negamax(
                 game_instance,
-                -minimum-1,
+                -minimum - 1,
                 -minimum,
                 evaluator,
                 depth_left - 1,
@@ -259,7 +249,8 @@ game::Pos NegamaxPlayer::getMove(const game::Board &board, const game::GomokuSta
 
             vector<Pos> child_path = {move_score.first};
             eval::score_t value;
-            if (is_first_move) {
+            if (is_first_move)
+            {
                 value = -negamax(
                     game_instance,
                     -maximum,
@@ -269,10 +260,12 @@ game::Pos NegamaxPlayer::getMove(const game::Board &board, const game::GomokuSta
                     zobrist_key,
                     child_path);
                 is_first_move = false;
-            }else{
+            }
+            else
+            {
                 value = -negamax(
                     game_instance,
-                    -minimum-1,
+                    -minimum - 1,
                     -minimum,
                     evaluator,
                     current_depth,

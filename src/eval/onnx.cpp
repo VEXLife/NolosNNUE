@@ -45,5 +45,5 @@ score_t ONNXEvaluator::evaluate(const Board& board, const GomokuState& turn){
 
     // Run inference
     this->session.Run(Ort::RunOptions{nullptr}, this->inputNames, this->inputTensors.data(), 1, this->outputNames, this->outputTensors.data(), 1);
-    return this->output[0];
+    return this->output[0] * 100;
 }

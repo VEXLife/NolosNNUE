@@ -48,32 +48,48 @@ namespace game
         bool check(Pos);
         bool isDone();
         string Gomoku::getPrintBoardStr(bool);
+        string Gomoku::getGameCode()
+        {
+            string res = "";
+            for (auto &it : history)
+            {
+                res += it.str();
+            }
+            return res;
+        }
 
-        GomokuState Gomoku::get(Pos pos) {
+        GomokuState Gomoku::get(Pos pos)
+        {
             return board[pos.x][pos.y];
         }
-        
-        GomokuState Gomoku::getTurn() {
+
+        GomokuState Gomoku::getTurn()
+        {
             return turn;
         }
-        
-        int Gomoku::getMoveCount() {
+
+        int Gomoku::getMoveCount()
+        {
             return moveCount;
         }
-        
-        GomokuState Gomoku::getWinner() {
+
+        GomokuState Gomoku::getWinner()
+        {
             return winner;
         }
-        
-        vector<vector<GomokuState>> Gomoku::getBoard() {
+
+        vector<vector<GomokuState>> Gomoku::getBoard()
+        {
             return board;
         }
 
-        int getSize() {
+        int getSize()
+        {
             return size;
         }
 
-        Pos getLastMove() {
+        Pos getLastMove()
+        {
             return history.back();
         }
 

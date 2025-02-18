@@ -5,6 +5,7 @@ include/
 logs/
 .venv/
 uv.lock
+output*/
 
 # Python
 __pycache__

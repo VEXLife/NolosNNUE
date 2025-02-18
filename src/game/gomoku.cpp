@@ -85,11 +85,7 @@ string Gomoku::getPrintBoardStr(bool show_code)
 
     if (show_code)
     {
-        res += "Game code: ";
-        for (auto &it : history)
-        {
-            res += it.str();
-        }
+        res += "Game code: " + getGameCode();
     }
 
     return res;
