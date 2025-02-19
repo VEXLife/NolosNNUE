@@ -28,7 +28,8 @@ class ConvNet(nn.Module):
         x = self.conv1(x)
         x = self.prelu1(x)
         x = self.conv2(x)
-        x = F.avg_pool2d(x, x.shape[-1])
+        x = self.prelu2(x)
+        x = F.max_pool2d(x, x.shape[-1])
         x = Rearrange('b c h w -> b (c h w)')(x)
         x = self.fc1(x)
         x = self.prelu3(x)
@@ -46,14 +47,14 @@ class LitConvNet(L.LightningModule):
         return self.model(x)
 
     def training_step(self, batch, batch_idx):
-        x, y = batch
+        x, y, a = batch
         y_hat = self.model(x)
         loss = F.mse_loss(y_hat, y)
         self.log('train/loss', loss)
         return loss
     
     def validation_step(self, batch, batch_idx):
-        x, y = batch
+        x, y, a = batch
         y_hat = self.model(x)
         # Quantize y_hat to (-1,1), if y_hat is closer to 1, then set it to 1, otherwise -1
         y_hat = torch.where(y_hat > 0, torch.ones_like(y_hat), -torch.ones_like(y_hat))

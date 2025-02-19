@@ -4,6 +4,7 @@ import re
 import torch
 from torch.utils.data import Dataset, DataLoader
 import lightning as L
+import itertools
 
 BOARD_SIZE = 15
 MOVE_PATTERN = re.compile(r"([a-o])(\d{1,2})", re.IGNORECASE)
@@ -20,7 +21,7 @@ def parse_moves(move_str):
 
 def process_game(moves, result):
     """
-    Process a game and return a list of samples.
+    Process a game and return a list of samples with rotations and flips.
     """
     samples = []
     board = torch.zeros((BOARD_SIZE, BOARD_SIZE), dtype=torch.float)
@@ -35,14 +36,46 @@ def process_game(moves, result):
 
     for i, (row, col) in enumerate(moves):
         piece = 1 if i % 2 == 0 else -1
-        board[row, col] = piece
-        if winner == 0:
+        next_board = board.clone()
+        next_board[row, col] = piece
+        if winner == 0 or i < len(moves) - 1:
             label = 0
         else:
             label = 1 if piece == winner else -1
-        # Add channel dim
-        samples.append((board.clone().unsqueeze(0), torch.FloatTensor([label])))
-    return samples
+        action = row * BOARD_SIZE + col
+        samples.append((board.unsqueeze(0), next_board.unsqueeze(0), torch.FloatTensor([label]), torch.LongTensor([action])))
+        board = next_board
+
+    def rotate_coords(row, col, k, board_size):
+        for _ in range(k):
+            row, col = col, board_size - 1 - row
+        return row, col
+
+    def flip_coords(row, col, board_size):
+        # flip horizontally
+        return row, board_size - 1 - col
+
+    # Augment samples with rotations and flips
+    augmented_samples = []
+    for board, next_board, label, action in samples:
+        original_row = action.item() // BOARD_SIZE
+        original_col = action.item() % BOARD_SIZE
+        for k in range(4):
+            new_row, new_col = rotate_coords(original_row, original_col, k, BOARD_SIZE)
+            rotated_board = torch.rot90(board, k, [1, 2])
+            rotated_next_board = torch.rot90(next_board, k, [1, 2])
+            rotated_action_val = new_row * BOARD_SIZE + new_col
+            rotated_action = torch.LongTensor([rotated_action_val])
+            augmented_samples.append((rotated_board, rotated_next_board, label, rotated_action))
+            
+            flip_row, flip_col = flip_coords(new_row, new_col, BOARD_SIZE)
+            flipped_board = torch.flip(rotated_board, [2])
+            flipped_next_board = torch.flip(rotated_next_board, [2])
+            flipped_action_val = flip_row * BOARD_SIZE + flip_col
+            flipped_action = torch.LongTensor([flipped_action_val])
+            augmented_samples.append((flipped_board, flipped_next_board, label, flipped_action))
+
+    return augmented_samples
 
 def load_dataset(csv_paths):
     data = []
@@ -61,13 +94,15 @@ def load_dataset(csv_paths):
 class GomokuDataset(Dataset):
     def __init__(self, data):
         self.boards = [item[0] for item in data]
-        self.labels = [item[1] for item in data]
+        self.next_boards = [item[1] for item in data]
+        self.labels = [item[2] for item in data]
+        self.actions = [item[3] for item in data]
 
     def __len__(self):
         return len(self.boards)
 
     def __getitem__(self, idx):
-        return self.boards[idx], self.labels[idx]
+        return self.boards[idx], self.next_boards[idx], self.labels[idx], self.actions[idx]
 
 class GomokuDataModule(L.LightningDataModule):
     def __init__(self, csv_paths, batch_size=128, num_workers=4, val_split=0.05):
