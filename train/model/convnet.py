@@ -47,20 +47,13 @@ class LitConvNet(L.LightningModule):
         return self.model(x)
 
     def training_step(self, batch, batch_idx):
-        x, y, a = batch
+        x, next_x, score, label, action = batch
         y_hat = self.model(x)
-        loss = F.mse_loss(y_hat, y)
+        target = 1.0 * F.tanh(score / 10000) + 0.0 * label
+        print("target:", target)
+        loss = F.mse_loss(y_hat, target)
         self.log('train/loss', loss)
         return loss
-    
-    def validation_step(self, batch, batch_idx):
-        x, y, a = batch
-        y_hat = self.model(x)
-        # Quantize y_hat to (-1,1), if y_hat is closer to 1, then set it to 1, otherwise -1
-        y_hat = torch.where(y_hat > 0, torch.ones_like(y_hat), -torch.ones_like(y_hat))
-        acc = (y_hat == y).float().mean()
-        self.log('val/acc', acc)
-        return acc
 
     def configure_optimizers(self):
         return optim.Adam(self.parameters(), lr=0.0001)

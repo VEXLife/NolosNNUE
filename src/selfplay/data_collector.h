@@ -14,8 +14,8 @@ namespace selfplay
         ~DataCollector() {}
         void collectData(
             game::Gomoku &game_instance,
-            Player &player_black,
-            Player &player_white,
+            RandomNegamaxPlayer &player_black,
+            RandomNegamaxPlayer &player_white,
             int num_games = 1,
             string output_file = "output/selfplay_data.csv", 
             string log_file = "logs/selfplay.log");

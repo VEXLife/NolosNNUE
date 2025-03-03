@@ -30,9 +30,11 @@ namespace selfplay
         }
         ~RandomNegamaxPlayer() {}
         game::Pos getMove(const game::Board &board, const game::GomokuState &turn, const int &moveCount);
+        eval::score_t getCurrentScore() { return this->current_score; }
 
     private:
         float temperature;
+        eval::score_t current_score;
     };
 }
 

@@ -42,7 +42,7 @@ int main(
         result["radius"].as<int>(),
         evaluator,
         result["temperature"].as<float>(),
-        result["transposition_table_size"].as<size_t>(),
+        result["tt"].as<size_t>(),
         "");
     auto player_white = new selfplay::RandomNegamaxPlayer(
         result["depth"].as<int>(),
@@ -50,7 +50,7 @@ int main(
         result["radius"].as<int>(),
         evaluator,
         result["temperature"].as<float>(),
-        result["transposition_table_size"].as<size_t>(),
+        result["tt"].as<size_t>(),
         "");
     auto data_collector = new selfplay::DataCollector();
     data_collector->collectData(*game_instance, *player_black, *player_white, 

@@ -46,6 +46,7 @@ game::Pos RandomNegamaxPlayer::getMove(const game::Board &board, const game::Gom
             {
                 game_instance->undo();
                 updateZobristKey(zobrist_key, move_score.first, game_instance->getTurn(), GomokuState::EMPTY);
+                this->current_score = INF;
                 return move_score.first;
             }
 
@@ -106,6 +107,7 @@ game::Pos RandomNegamaxPlayer::getMove(const game::Board &board, const game::Gom
         }
         sort(move_scores.begin(), move_scores.end(), CompareMoveScoresGreater()); // Sort by score
     }
+    this->current_score = move_scores[0].second;
 
     // Do softmax
     if (move_scores[0].second == INF) {

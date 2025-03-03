@@ -2,8 +2,8 @@
 
 void DataCollector::collectData(
     game::Gomoku &game_instance,
-    Player &player_black,
-    Player &player_white,
+    RandomNegamaxPlayer &player_black,
+    RandomNegamaxPlayer &player_white,
     int num_games,
     string output_file,
     string log_file)
@@ -22,24 +22,36 @@ void DataCollector::collectData(
 
     // Write CSV header
     std::ofstream file(output_file);
-    file << "game_code, result" << std::endl;
+    file << "game_code, scores, result" << std::endl;
 
     for (int i = 0; i < num_games; i++)
     {
         // Reset game
         game_instance.reset();
+
+        vector<eval::score_t> scores;
         
         while (game_instance.isDone() == false)
         {
             auto player = game_instance.getTurn() == game::GomokuState::BLACK ? &player_black : &player_white;
             auto move = player->getMove(game_instance.getBoard(), game_instance.getTurn(), game_instance.getMoveCount());
+            scores.push_back(player->getCurrentScore());
             game_instance.move(move);
             logger->info("Game {}, Current board:\n{}", i, game_instance.getPrintBoardStr(true));
         }
 
         // Write game result to CSV
         file << game_instance.getGameCode()
-             << ","
+             << ",[";
+        for (int i = 0; i < scores.size(); i++)
+        {
+            file << scores[i];
+            if (i < scores.size() - 1)
+            {
+                file << ";";
+            }
+        }
+        file << "],"
              << (game_instance.getWinner() == game::GomokuState::BLACK   ? "black"
                  : game_instance.getWinner() == game::GomokuState::WHITE ? "white"
                                                                          : "draw")
