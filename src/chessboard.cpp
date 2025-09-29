@@ -71,18 +71,21 @@ bool Chessboard::load_from_fen(const std::string& fen) {
     
     // 加载棋盘布局
     int y = 9; // 从棋盘底部（红方）开始
+    int current_x = 0;
     size_t pos = 0;
     
     while (y >= 0 && pos < board_part.length()) {
         if (board_part[pos] == '/') {
             y--;
+            current_x = 0;
             pos++;
         } else if (isdigit(board_part[pos])) {
             // 跳过空格
             int empty_squares = board_part[pos] - '0';
             for (int x = 0; x < empty_squares; x++) {
-                board_[y][x] = PieceType::EMPTY;
+                board_[y][current_x + x] = PieceType::EMPTY;
             }
+            current_x += empty_squares;
             pos++;
         } else {
             // 设置棋子
@@ -92,22 +95,23 @@ bool Chessboard::load_from_fen(const std::string& fen) {
             switch (piece_char) {
                 case 'K': piece = PieceType::RED_KING; break;
                 case 'A': piece = PieceType::RED_ADVISOR; break;
-                case 'E': piece = PieceType::RED_ELEPHANT; break;
-                case 'H': piece = PieceType::RED_HORSE; break;
+                case 'B': piece = PieceType::RED_ELEPHANT; break;
+                case 'N': piece = PieceType::RED_HORSE; break;
                 case 'R': piece = PieceType::RED_CHARIOT; break;
                 case 'C': piece = PieceType::RED_CANNON; break;
                 case 'P': piece = PieceType::RED_PAWN; break;
                 case 'k': piece = PieceType::BLACK_KING; break;
                 case 'a': piece = PieceType::BLACK_ADVISOR; break;
-                case 'e': piece = PieceType::BLACK_ELEPHANT; break;
-                case 'h': piece = PieceType::BLACK_HORSE; break;
+                case 'b': piece = PieceType::BLACK_ELEPHANT; break;
+                case 'n': piece = PieceType::BLACK_HORSE; break;
                 case 'r': piece = PieceType::BLACK_CHARIOT; break;
                 case 'c': piece = PieceType::BLACK_CANNON; break;
                 case 'p': piece = PieceType::BLACK_PAWN; break;
                 default: return false;
             }
             
-            board_[y][pos % 9] = piece;
+            board_[y][current_x] = piece;
+            current_x++;
             pos++;
         }
     }
@@ -120,8 +124,6 @@ bool Chessboard::load_from_fen(const std::string& fen) {
     } else {
         return false;
     }
-    
-    // 其余FEN部分暂时忽略（城堡权利、吃过路兵等，中国象棋中不太常用）
     
     // 更新哈希值
     update_hash();
@@ -421,22 +423,22 @@ Color Chessboard::get_piece_color(PieceType piece) const {
 
 std::string Chessboard::get_piece_name(PieceType piece) const {
     switch (piece) {
-        case PieceType::EMPTY: return "空";
-        case PieceType::RED_KING: return "帅";
-        case PieceType::RED_ADVISOR: return "仕";
-        case PieceType::RED_ELEPHANT: return "相";
-        case PieceType::RED_HORSE: return "马";
-        case PieceType::RED_CHARIOT: return "车";
-        case PieceType::RED_CANNON: return "炮";
-        case PieceType::RED_PAWN: return "兵";
-        case PieceType::BLACK_KING: return "将";
-        case PieceType::BLACK_ADVISOR: return "士";
-        case PieceType::BLACK_ELEPHANT: return "象";
-        case PieceType::BLACK_HORSE: return "马";
-        case PieceType::BLACK_CHARIOT: return "车";
-        case PieceType::BLACK_CANNON: return "炮";
-        case PieceType::BLACK_PAWN: return "卒";
-        default: return "未知";
+        case PieceType::EMPTY: return ".";
+        case PieceType::RED_KING: return "K";
+        case PieceType::RED_ADVISOR: return "A";
+        case PieceType::RED_ELEPHANT: return "B";
+        case PieceType::RED_HORSE: return "N";
+        case PieceType::RED_CHARIOT: return "R";
+        case PieceType::RED_CANNON: return "C";
+        case PieceType::RED_PAWN: return "P";
+        case PieceType::BLACK_KING: return "k";
+        case PieceType::BLACK_ADVISOR: return "a";
+        case PieceType::BLACK_ELEPHANT: return "b";
+        case PieceType::BLACK_HORSE: return "n";
+        case PieceType::BLACK_CHARIOT: return "r";
+        case PieceType::BLACK_CANNON: return "c";
+        case PieceType::BLACK_PAWN: return "p";
+        default: return "?";
     }
 }
 
@@ -474,7 +476,7 @@ void Chessboard::print() const {
     std::cout << " +-+-+-+-+-+-+-+-+" << std::endl;
     std::cout << "  a b c d e f g h i" << std::endl;
     
-    std::cout << "当前行棋方: " << (current_player_ == Color::RED ? "红方" : "黑方") << std::endl;
+    std::cout << "Current player: " << (current_player_ == Color::RED ? "Red" : "Black") << std::endl;
 }
 
 std::vector<Move> Chessboard::generate_piece_moves(int x, int y) const {
