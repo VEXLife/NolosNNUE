@@ -71,6 +71,20 @@ NolosNNUE是一个完整的中国象棋AI引擎实现，支持MiniMax搜索、Al
 1. 编译完成后，将生成的可执行文件与`onnxruntime.dll`和`model.onnx`放在同一目录下
 2. 在支持UCCI协议的中国象棋界面中加载引擎
 
+### 使用调试工具
+项目提供了一个Python调试工具，可以从输入文件中读取UCCI命令并传递给引擎：
+
+1. 准备包含UCCI命令的输入文件（示例文件：`example_ucci_commands.txt`）
+2. 运行调试工具
+   ```
+   python debug_ucci.py <输入文件路径>
+   ```
+
+示例：
+```
+python debug_ucci.py example_ucci_commands.txt
+```
+
 ### 训练NNUE网络
 1. 安装所需Python依赖
    ```
