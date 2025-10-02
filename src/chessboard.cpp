@@ -676,7 +676,7 @@ std::vector<Move> Chessboard::generate_piece_moves(int x, int y) const {
         case PieceType::BLACK_PAWN: {
             // 兵/卒未过河时只能前进，过河后可以左右移动
             Color pawn_color = get_piece_color(piece);
-            int forward_direction = (pawn_color == Color::RED) ? -1 : 1; // 红兵向上，黑卒向下
+            int forward_direction = (pawn_color == Color::RED) ? 1 : -1; // 红兵向上，黑卒向下
             
             // 前进一格
             int new_x = x;
@@ -689,8 +689,8 @@ std::vector<Move> Chessboard::generate_piece_moves(int x, int y) const {
             }
             
             // 检查是否过河
-            bool is_crossed_river = (pawn_color == Color::RED && y <= 4) || 
-                                   (pawn_color == Color::BLACK && y >= 5);
+            bool is_crossed_river = (pawn_color == Color::RED && y >= 5) || 
+                                   (pawn_color == Color::BLACK && y <= 4);
             
             if (is_crossed_river) {
                 // 过河后可以左右移动
@@ -730,11 +730,9 @@ bool Chessboard::is_in_palace(int x, int y, Color color) const {
         return false;
     }
     
-    if (color == Color::RED) {
-        // 红方九宫：x在3-5之间，y在7-9之间
+    if (color == Color::BLACK) {
         return x >= 3 && x <= 5 && y >= 7 && y <= 9;
     } else {
-        // 黑方九宫：x在3-5之间，y在0-2之间
         return x >= 3 && x <= 5 && y >= 0 && y <= 2;
     }
 }
@@ -925,11 +923,11 @@ bool Chessboard::is_pawn_move_valid(int from_x, int from_y, int to_x, int to_y) 
     PieceType pawn = get_piece(from_x, from_y);
     Color pawn_color = get_piece_color(pawn);
     
-    int forward_direction = (pawn_color == Color::RED) ? -1 : 1; // 红兵向上，黑卒向下
+    int forward_direction = (pawn_color == Color::RED) ? 1 : -1; // 红兵向上，黑卒向下
     
     // 检查是否过河
-    bool is_crossed_river = (pawn_color == Color::RED && from_y <= 4) || 
-                           (pawn_color == Color::BLACK && from_y >= 5);
+    bool is_crossed_river = (pawn_color == Color::RED && from_y >= 5) || 
+                           (pawn_color == Color::BLACK && from_y <= 4);
     
     // 计算移动距离
     int dx = abs(to_x - from_x);

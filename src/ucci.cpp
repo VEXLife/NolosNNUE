@@ -305,7 +305,7 @@ void UcciHandler::search_thread_func() {
 
 void UcciHandler::show_engine_info() const {
     send_response("id name NolosNNUE");
-    send_response("id author Trae AI");
+    send_response("id author Midden Vexu");
 }
 
 void UcciHandler::show_options() const {
@@ -330,8 +330,8 @@ void UcciHandler::reset_board() {
 std::string UcciUtils::move_to_ucci(const Move& move) {
     // 将着法转换为UCCI格式（例如：e9e8）
     std::ostringstream oss;
-    oss << static_cast<char>('a' + move.from_x) << (9 - move.from_y + 1)
-        << static_cast<char>('a' + move.to_x) << (9 - move.to_y + 1);
+    oss << static_cast<char>('a' + move.from_x) << move.from_y
+        << static_cast<char>('a' + move.to_x) << move.to_y;
     return oss.str();
 }
 
@@ -341,9 +341,9 @@ Move UcciUtils::move_from_ucci(const std::string& ucci_move) {
     
     if (ucci_move.length() >= 4) {
         move.from_x = toupper(ucci_move[0]) - 'A';
-        move.from_y = 9 - (ucci_move[1] - '0') + 1;
+        move.from_y = ucci_move[1] - '0';
         move.to_x = toupper(ucci_move[2]) - 'A';
-        move.to_y = 9 - (ucci_move[3] - '0') + 1;
+        move.to_y = ucci_move[3] - '0';
     }
     
     return move;

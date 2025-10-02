@@ -3,10 +3,12 @@
 #include <algorithm>
 #include <random>
 #include <chrono>
+#include "ucci.h"
 
 Search::Search(std::unique_ptr<Evaluator> evaluator) : 
     evaluator_(std::move(evaluator)), 
-    stop_search_(false) {
+    stop_search_(false),
+    nodes_searched_(0) {
     // 初始化历史启发式表
     for (int i = 0; i < 90; i++) {
         for (int j = 0; j < 90; j++) {
@@ -36,14 +38,19 @@ bool Search::should_stop() const {
     return stop_search_ || check_time_limit();
 }
 
-double Search::alpha_beta(Chessboard& board, int depth, double alpha, double beta, bool is_null_move) {
+double Search::alpha_beta(Chessboard& board, int depth, double alpha, double beta, bool is_null_move, std::vector<Move>& pv) {
+    // 增加节点计数
+    nodes_searched_++;
+    
     // 检查是否应该停止搜索
     if (should_stop()) {
+        pv.clear();
         return 0.0;
     }
     
     // 到达搜索深度，进行静态评估搜索
     if (depth == 0) {
+        pv.clear();
         return quiescence_search(board, alpha, beta);
     }
     
@@ -52,6 +59,7 @@ double Search::alpha_beta(Chessboard& board, int depth, double alpha, double bet
     
     // 如果没有合法移动，检查是否被将死或困毙
     if (moves.empty()) {
+        pv.clear();
         if (board.is_in_check(board.get_current_player())) {
             // 被将死，返回极小值
             return -10000.0 - depth;
@@ -65,6 +73,7 @@ double Search::alpha_beta(Chessboard& board, int depth, double alpha, double bet
     if (current_params_.use_null_move_pruning && !is_null_move && depth >= 3 && 
         board.get_current_player() == Color::RED && alpha < 10000.0) {
         if (null_move_pruning(board, depth, alpha, beta)) {
+            pv.clear();
             return beta;
         }
     }
@@ -73,25 +82,31 @@ double Search::alpha_beta(Chessboard& board, int depth, double alpha, double bet
     order_moves(moves, board, depth);
     
     double best_score = -100000.0;
+    std::vector<Move> best_pv;
     
     for (const Move& move : moves) {
         // 执行移动
         board.make_move(move);
         
-        // 递归搜索
-        double score = -alpha_beta(board, depth - 1, -beta, -alpha);
+        // 递归搜索，跟踪PV
+        std::vector<Move> child_pv;
+        double score = -alpha_beta(board, depth - 1, -beta, -alpha, true, child_pv);
         
         // 撤销移动
         board.undo_move(move);
         
-        // 更新最佳分数
+        // 更新最佳分数和PV
         if (score > best_score) {
             best_score = score;
+            best_pv.clear();
+            best_pv.push_back(move);
+            best_pv.insert(best_pv.end(), child_pv.begin(), child_pv.end());
         }
         
         // Alpha-Beta剪枝
         if (score > alpha) {
             alpha = score;
+            pv = best_pv; // 更新PV
         }
         
         if (alpha >= beta) {
@@ -114,6 +129,7 @@ SearchResult Search::iterative_deepening(Chessboard& board, const SearchParamete
     result.best_score = 0.0;
     result.depth_reached = 0;
     result.nodes_searched = 0;
+    result.pv.clear();
     
     // 迭代加深搜索
     for (int depth = 1; depth <= params.depth; depth++) {
@@ -124,21 +140,48 @@ SearchResult Search::iterative_deepening(Chessboard& board, const SearchParamete
         // 记录开始时间
         auto depth_start_time = std::chrono::steady_clock::now();
         
-        // 执行Alpha-Beta搜索
-        double score = alpha_beta(board, depth, -100000.0, 100000.0);
+        // 执行Alpha-Beta搜索，跟踪PV
+        std::vector<Move> current_pv; // 使用临时变量存储当前深度的PV
+        double score = alpha_beta(board, depth, -100000.0, 100000.0, false, current_pv);
         
         // 记录结束时间
         auto depth_end_time = std::chrono::steady_clock::now();
         auto depth_duration = std::chrono::duration_cast<std::chrono::milliseconds>(depth_end_time - depth_start_time);
         
-        // 更新结果
-        result.best_score = score;
-        result.depth_reached = depth;
+        // 计算NPS（每秒节点数）
+        int time_used = static_cast<int>(depth_duration.count());
+        int nps = (time_used > 0) ? (nodes_searched_ * 1000 / time_used) : 0;
         
-        // 打印搜索信息
-        std::cout << "info depth " << depth << " score cp " << static_cast<int>(score * 100) 
-                  << " nodes " << result.nodes_searched 
-                  << " time " << depth_duration.count() << std::endl;
+        // 构建PV字符串
+        std::string pv_str;
+        for (const Move& move : current_pv) {
+            pv_str += UcciUtils::move_to_ucci(move) + " ";
+        }
+        if (!pv_str.empty()) {
+            pv_str.pop_back(); // 删除最后一个空格
+        }
+        
+        // 打印搜索信息（新格式）
+        std::cout << "info depth " << depth 
+                  << " score " << static_cast<int>(score * 100) 
+                  << " nps " << nps 
+                  << " time " << time_used;
+        if (!pv_str.empty()) {
+            std::cout << " pv " << pv_str;
+        }
+        std::cout << std::endl;
+        
+        // 只有在当前深度搜索完成，没有被中断的情况下才更新结果
+        if (!should_stop()) {
+            // 更新结果
+            result.best_score = score;
+            result.depth_reached = depth;
+            result.nodes_searched = nodes_searched_;
+            result.pv = current_pv;
+            if (!current_pv.empty()) {
+                result.best_move = current_pv[0];
+            }
+        }
         
         // 检查时间限制
         if (check_time_limit()) {
@@ -146,18 +189,18 @@ SearchResult Search::iterative_deepening(Chessboard& board, const SearchParamete
         }
         
         // 检查节点限制
-        if (params.nodes_limit > 0 && result.nodes_searched >= params.nodes_limit) {
+        if (params.nodes_limit > 0 && nodes_searched_ >= params.nodes_limit) {
             break;
         }
     }
-    
-    // 设置搜索时间
-    result.time_used_ms = get_search_time_ms();
     
     return result;
 }
 
 double Search::quiescence_search(Chessboard& board, double alpha, double beta) {
+    // 增加节点计数
+    nodes_searched_++;
+    
     // 首先进行静态评估
     double stand_pat = evaluator_->evaluate(board);
     
@@ -220,7 +263,8 @@ bool Search::null_move_pruning(Chessboard& board, int depth, double alpha, doubl
     board.set_current_player(original_player == Color::RED ? Color::BLACK : Color::RED);
     
     // 进行深度为depth-3的搜索
-    double score = -alpha_beta(board, depth - 3, -beta, -beta + 1.0, true);
+    std::vector<Move> dummy_pv; // 空步裁剪不需要跟踪PV
+    double score = -alpha_beta(board, depth - 3, -beta, -beta + 1.0, true, dummy_pv);
     
     // 恢复原始行棋方
     board.set_current_player(original_player);
@@ -329,6 +373,7 @@ void Search::initialize_search(const SearchParameters& params) {
     stop_search_ = false;
     start_time_ = std::chrono::steady_clock::now();
     current_params_ = params;
+    nodes_searched_ = 0;
     
     // 重置历史启发式表和杀手着法表
     if (params.use_history_heuristic) {
@@ -351,12 +396,6 @@ bool Search::is_search_complete(int depth, int nodes_searched) const {
     return should_stop() || 
            (current_params_.depth > 0 && depth >= current_params_.depth) || 
            (current_params_.nodes_limit > 0 && nodes_searched >= current_params_.nodes_limit);
-}
-
-int Search::get_search_time_ms() const {
-    auto current_time = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time_);
-    return static_cast<int>(elapsed.count());
 }
 
 MoveGenerator::MoveGenerator() {

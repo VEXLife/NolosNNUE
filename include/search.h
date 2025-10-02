@@ -25,6 +25,7 @@ struct SearchResult {
     int depth_reached;
     int nodes_searched;
     int time_used_ms;
+    std::vector<Move> pv; // 主要变例
 };
 
 // 搜索算法类
@@ -48,14 +49,17 @@ private:
     std::chrono::steady_clock::time_point start_time_;
     SearchParameters current_params_;
     
+    // 节点计数
+    std::atomic<int> nodes_searched_;
+    
     // 历史启发式表
     std::array<std::array<double, 90>, 90> history_table_; // 90个位置（10x9）
     
     // 杀手着法表
     std::array<std::array<Move, 2>, 100> killer_moves_; // 每个深度最多2个杀手着法
     
-    // 主搜索函数（带Alpha-Beta剪枝）
-    double alpha_beta(Chessboard& board, int depth, double alpha, double beta, bool is_null_move = false);
+    // 主搜索函数（带Alpha-Beta剪枝和PV跟踪）
+    double alpha_beta(Chessboard& board, int depth, double alpha, double beta, bool is_null_move, std::vector<Move>& pv);
     
     // 迭代加深搜索
     SearchResult iterative_deepening(Chessboard& board, const SearchParameters& params);
@@ -83,9 +87,6 @@ private:
     
     // 检查搜索是否完成
     bool is_search_complete(int depth, int nodes_searched) const;
-    
-    // 获取当前搜索时间（毫秒）
-    int get_search_time_ms() const;
 };
 
 // 着法生成器类（扩展功能，例如 zobrist哈希、重复局面检测等）
