@@ -171,8 +171,10 @@ SearchResult Search::iterative_deepening(Chessboard& board, const SearchParamete
         }
         std::cout << std::endl;
         
-        // 只有在当前深度搜索完成，没有被中断的情况下才更新结果
-        if (!should_stop()) {
+        // 更新结果的条件：
+        // 1. 当前深度搜索完成，没有被中断
+        // 2. 或者这是第一层搜索，即使被中断也要使用当前结果
+        if (!should_stop() || depth == 1) {
             // 更新结果
             result.best_score = score;
             result.depth_reached = depth;
