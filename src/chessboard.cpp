@@ -496,9 +496,10 @@ std::vector<Move> Chessboard::generate_piece_moves(int x, int y) const {
             
             // 查找对方将帅在同一列上的位置
             bool is_clear_path = true;
-            for (int check_y = (king_color == Color::RED) ? y - 1 : y + 1; 
-                 (king_color == Color::RED) ? check_y >= 0 : check_y < 10; 
-                 (king_color == Color::RED) ? check_y-- : check_y++) {
+            int step = (king_color == Color::RED) ? 1 : -1;
+            for (int check_y = y + step; 
+                 check_y >= 0 && check_y < 10; 
+                 check_y += step) {
                 if (get_piece(x, check_y) == opponent_king_type) {
                     opponent_king_y = check_y;
                     break;

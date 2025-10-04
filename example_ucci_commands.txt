@@ -2,7 +2,7 @@
 ucci
 
 # 设置棋盘位置（中国象棋初始局面）
-position fen 5a3/5k3/R8/p3N1p1p/4C4/9/8P/4B2rB/9/1r1AKAR2 b - - 0 1
+position fen 1rba1kb2/4a4/4c4/p1p3p1p/1c5P1/P8/2Pp2P1R/N3B3B/4A4/R2A1K3 b - - 0 1
 
 # 让引擎准备好
 isready
