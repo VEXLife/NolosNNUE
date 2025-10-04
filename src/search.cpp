@@ -35,11 +35,18 @@ void TranspositionTable::store(uint64_t hash, const Move& best_move, double valu
     size_t index = hash & mask_;
     
     TTEntry& entry = table_[index];
-    entry.hash = hash;
-    entry.best_move = best_move;
-    entry.value = value;
-    entry.depth = depth;
-    entry.type = type;
+    
+    // 深度优先替换策略：
+    // 1. 如果哈希值相同，无条件替换（更新相同局面的信息）
+    // 2. 如果哈希值不同，但新条目的深度大于或等于现有条目的深度，才替换
+    // 这样可以确保较深深度的搜索结果优先保留
+    if (entry.hash == hash || depth >= entry.depth) {
+        entry.hash = hash;
+        entry.best_move = best_move;
+        entry.value = value;
+        entry.depth = depth;
+        entry.type = type;
+    }
 }
 
 TTEntry* TranspositionTable::probe(uint64_t hash) {
