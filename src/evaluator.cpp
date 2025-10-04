@@ -13,38 +13,35 @@ double ManualEvaluator::evaluate(const Chessboard& board) {
     // 评估棋子价值
     score += evaluate_material(board);
     
-    // 评估位置价值
-    score += evaluate_position(board);
+    // // 评估位置价值
+    // score += evaluate_position(board);
     
-    // 评估机动性
-    score += evaluate_mobility(board);
+    // // 评估机动性
+    // score += evaluate_mobility(board);
     
-    // 评估威胁
-    score += evaluate_threats(board);
+    // // 评估威胁
+    // score += evaluate_threats(board);
     
-    // 评估特殊局面特征
-    score += evaluate_special_features(board);
-    
-    return score;
+    return board.get_current_player() == Color::RED ? score : -score;
 }
 
 void ManualEvaluator::initialize_piece_values() {
     // 初始化棋子价值表（基于中国象棋的传统价值体系）
     piece_values_[static_cast<int>(PieceType::EMPTY)] = 0.0;
-    piece_values_[static_cast<int>(PieceType::RED_KING)] = 10000.0; // 将帅是最重要的，价值无限大
-    piece_values_[static_cast<int>(PieceType::RED_ADVISOR)] = 200.0;
-    piece_values_[static_cast<int>(PieceType::RED_ELEPHANT)] = 200.0;
-    piece_values_[static_cast<int>(PieceType::RED_HORSE)] = 450.0;
-    piece_values_[static_cast<int>(PieceType::RED_CHARIOT)] = 900.0;
-    piece_values_[static_cast<int>(PieceType::RED_CANNON)] = 450.0;
-    piece_values_[static_cast<int>(PieceType::RED_PAWN)] = 100.0;
-    piece_values_[static_cast<int>(PieceType::BLACK_KING)] = -10000.0;
-    piece_values_[static_cast<int>(PieceType::BLACK_ADVISOR)] = -200.0;
-    piece_values_[static_cast<int>(PieceType::BLACK_ELEPHANT)] = -200.0;
-    piece_values_[static_cast<int>(PieceType::BLACK_HORSE)] = -450.0;
-    piece_values_[static_cast<int>(PieceType::BLACK_CHARIOT)] = -900.0;
-    piece_values_[static_cast<int>(PieceType::BLACK_CANNON)] = -450.0;
-    piece_values_[static_cast<int>(PieceType::BLACK_PAWN)] = -100.0;
+    piece_values_[static_cast<int>(PieceType::RED_KING)] = 1000.0; // 将帅是最重要的，价值无限大
+    piece_values_[static_cast<int>(PieceType::RED_ADVISOR)] = 2.0;
+    piece_values_[static_cast<int>(PieceType::RED_ELEPHANT)] = 2.0;
+    piece_values_[static_cast<int>(PieceType::RED_HORSE)] = 4.0;
+    piece_values_[static_cast<int>(PieceType::RED_CHARIOT)] = 8.0;
+    piece_values_[static_cast<int>(PieceType::RED_CANNON)] = 4.0;
+    piece_values_[static_cast<int>(PieceType::RED_PAWN)] = 1.0;
+    piece_values_[static_cast<int>(PieceType::BLACK_KING)] = -1000.0;
+    piece_values_[static_cast<int>(PieceType::BLACK_ADVISOR)] = -2.0;
+    piece_values_[static_cast<int>(PieceType::BLACK_ELEPHANT)] = -2.0;
+    piece_values_[static_cast<int>(PieceType::BLACK_HORSE)] = -4.0;
+    piece_values_[static_cast<int>(PieceType::BLACK_CHARIOT)] = -8.0;
+    piece_values_[static_cast<int>(PieceType::BLACK_CANNON)] = -4.0;
+    piece_values_[static_cast<int>(PieceType::BLACK_PAWN)] = -1.0;
 }
 
 void ManualEvaluator::initialize_position_values() {
@@ -210,16 +207,6 @@ double ManualEvaluator::evaluate_threats(const Chessboard& board) const {
     }
     
     return threat_score;
-}
-
-double ManualEvaluator::evaluate_special_features(const Chessboard& board) const {
-    double special_score = 0.0;
-    
-    // 检查是否有孤棋（无保护的棋子）
-    // 检查是否有双车错、马炮残局等特殊局面
-    // 这里只是一个简化的实现
-    
-    return special_score;
 }
 
 #ifdef USE_ONNX

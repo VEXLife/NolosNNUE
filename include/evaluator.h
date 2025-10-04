@@ -51,9 +51,6 @@ private:
     
     // 评估威胁
     double evaluate_threats(const Chessboard& board) const;
-    
-    // 评估特殊局面特征
-    double evaluate_special_features(const Chessboard& board) const;
 };
 
 #ifdef USE_ONNX

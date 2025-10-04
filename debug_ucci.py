@@ -108,7 +108,7 @@ def main():
                             break
                         
                         # 处理输出行
-                        print(f"引擎响应: {line.strip()}")
+                        print(f"引擎响应: {line.replace('\n', '')}")
                         response_received = True
                         
                         # 根据不同命令设置不同的结束条件

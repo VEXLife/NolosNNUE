@@ -205,26 +205,7 @@ void UcciHandler::process_position_command(const std::vector<std::string>& args)
         return;
     }
     
-    if (args[1] == "startpos") {
-        // 设置为初始局面
-        current_board_.initialize();
-        
-        // 检查是否有后续的着法
-        size_t moves_index = 2;
-        while (moves_index < args.size() && args[moves_index] != "moves") {
-            moves_index++;
-        }
-        
-        // 应用后续的着法
-        if (moves_index + 1 < args.size()) {
-            for (size_t i = moves_index + 1; i < args.size(); i++) {
-                Move move = UcciUtils::move_from_ucci(args[i]);
-                if (current_board_.is_move_valid(move)) {
-                    current_board_.make_move(move);
-                }
-            }
-        }
-    } else if (args[1] == "fen") {
+    if (args[1] == "fen") {
         // 从FEN字符串设置局面
         std::string fen;
         size_t moves_index = 2;
@@ -242,7 +223,7 @@ void UcciHandler::process_position_command(const std::vector<std::string>& args)
         current_board_.load_from_fen(fen);
         
         // 应用后续的着法
-        if (moves_index + 1 < args.size()) {
+        if (moves_index + 1 < args.size()) {            
             for (size_t i = moves_index + 1; i < args.size(); i++) {
                 Move move = UcciUtils::move_from_ucci(args[i]);
                 if (current_board_.is_move_valid(move)) {
@@ -255,12 +236,13 @@ void UcciHandler::process_position_command(const std::vector<std::string>& args)
 
 void UcciHandler::process_go_command(const std::vector<std::string>& args) {
     // 初始化搜索参数
-    search_params_.depth = 6; // 默认搜索深度
+    search_params_.depth = 100; // 默认搜索深度
     search_params_.time_limit_ms = 0; // 默认无时间限制
     search_params_.nodes_limit = 0; // 默认无节点限制
-    search_params_.use_null_move_pruning = true;
+    search_params_.use_null_move_pruning = false;
     search_params_.use_history_heuristic = true;
     search_params_.use_killer_moves = true;
+    search_params_.use_transposition_table = true;
     search_params_.contempt_factor = 0;
     
     // 解析go命令参数

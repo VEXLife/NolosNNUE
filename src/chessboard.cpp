@@ -258,10 +258,6 @@ bool Chessboard::is_move_valid(const Move& move) const {
 }
 
 bool Chessboard::make_move(const Move& move) {
-    if (!is_move_valid(move)) {
-        return false;
-    }
-    
     // 保存当前状态到历史记录
     BoardHistory history;
     history.board = board_;
@@ -280,7 +276,7 @@ bool Chessboard::make_move(const Move& move) {
     // 更新哈希值
     update_hash();
     
-    return true;
+    return captured_piece == PieceType::RED_KING || captured_piece == PieceType::BLACK_KING;
 }
 
 void Chessboard::undo_move(const Move& move) {
@@ -330,7 +326,6 @@ bool Chessboard::is_in_check(Color color) const {
                 break;
             }
         }
-        if (king_x != -1) break;
     }
     
     if (king_x == -1) {
@@ -456,24 +451,18 @@ void Chessboard::clear() {
 
 void Chessboard::print() const {
     std::cout << "  a b c d e f g h i" << std::endl;
-    std::cout << " +-+-+-+-+-+-+-+-+" << std::endl;
-    
+
     for (int y = 0; y < 10; y++) {
-        std::cout << (9 - y + 1) << "|";
+        std::cout << (y) << "|";
         
         for (int x = 0; x < 9; x++) {
             PieceType piece = get_piece(x, y);
             std::cout << get_piece_name(piece) << "|";
         }
         
-        std::cout << " " << (9 - y + 1) << std::endl;
-        
-        if (y < 9) {
-            std::cout << " +-+-+-+-+-+-+-+-+" << std::endl;
-        }
+        std::cout << (y) << std::endl;
     }
     
-    std::cout << " +-+-+-+-+-+-+-+-+" << std::endl;
     std::cout << "  a b c d e f g h i" << std::endl;
     
     std::cout << "Current player: " << (current_player_ == Color::RED ? "Red" : "Black") << std::endl;
@@ -495,11 +484,9 @@ std::vector<Move> Chessboard::generate_piece_moves(int x, int y) const {
                 int new_x = x + dir[0];
                 int new_y = y + dir[1];
                 
-                if (is_in_palace(new_x, new_y, king_color)) {
+                if (is_in_palace(new_x, new_y, king_color) && get_piece_color(get_piece(new_x, new_y)) != king_color) {
                     Move move(x, y, new_x, new_y);
-                    if (is_move_valid(move)) {
-                        moves.push_back(move);
-                    }
+                    moves.push_back(move);
                 }
             }
             
@@ -537,11 +524,9 @@ std::vector<Move> Chessboard::generate_piece_moves(int x, int y) const {
                 int new_x = x + dir[0];
                 int new_y = y + dir[1];
                 
-                if (is_in_palace(new_x, new_y, advisor_color)) {
+                if (is_in_palace(new_x, new_y, advisor_color) && get_piece_color(get_piece(new_x, new_y)) != advisor_color) {
                     Move move(x, y, new_x, new_y);
-                    if (is_move_valid(move)) {
-                        moves.push_back(move);
-                    }
+                    moves.push_back(move);
                 }
             }
             break;
@@ -560,15 +545,14 @@ std::vector<Move> Chessboard::generate_piece_moves(int x, int y) const {
                 int check_y = y + elephant_check[i][1];
                 
                 // 检查是否过河（红方象不能过河，黑方象也不能过河）
-                bool is_river_crossed = (elephant_color == Color::RED && new_y < 5) || 
-                                      (elephant_color == Color::BLACK && new_y > 4);
+                bool is_river_crossed = (elephant_color == Color::RED && new_y >= 5) || 
+                                      (elephant_color == Color::BLACK && new_y <= 4);
                 
                 if (is_in_bounds(new_x, new_y) && !is_river_crossed && 
-                    get_piece(check_x, check_y) == PieceType::EMPTY) {
+                    get_piece(check_x, check_y) == PieceType::EMPTY &&
+                    get_piece_color(get_piece(new_x, new_y)) != elephant_color) {
                     Move move(x, y, new_x, new_y);
-                    if (is_move_valid(move)) {
-                        moves.push_back(move);
-                    }
+                    moves.push_back(move);
                 }
             }
             break;
@@ -587,11 +571,10 @@ std::vector<Move> Chessboard::generate_piece_moves(int x, int y) const {
                 int check_x = x + horse_check[i][0];
                 int check_y = y + horse_check[i][1];
                 
-                if (is_in_bounds(new_x, new_y) && get_piece(check_x, check_y) == PieceType::EMPTY) {
+                if (is_in_bounds(new_x, new_y) && get_piece(check_x, check_y) == PieceType::EMPTY &&
+                    get_piece_color(get_piece(new_x, new_y)) != get_piece_color(piece)) {
                     Move move(x, y, new_x, new_y);
-                    if (is_move_valid(move)) {
-                        moves.push_back(move);
-                    }
+                    moves.push_back(move);
                 }
             }
             break;
@@ -681,11 +664,9 @@ std::vector<Move> Chessboard::generate_piece_moves(int x, int y) const {
             // 前进一格
             int new_x = x;
             int new_y = y + forward_direction;
-            if (is_in_bounds(new_x, new_y)) {
+            if (is_in_bounds(new_x, new_y) && get_piece_color(get_piece(new_x, new_y)) != pawn_color) {
                 Move move(x, y, new_x, new_y);
-                if (is_move_valid(move)) {
-                    moves.push_back(move);
-                }
+                moves.push_back(move);
             }
             
             // 检查是否过河
@@ -698,18 +679,14 @@ std::vector<Move> Chessboard::generate_piece_moves(int x, int y) const {
                 int right_x = x + 1;
                 int current_y = y;
                 
-                if (is_in_bounds(left_x, current_y)) {
+                if (is_in_bounds(left_x, current_y) && get_piece_color(get_piece(left_x, current_y)) != pawn_color) {
                     Move move(x, y, left_x, current_y);
-                    if (is_move_valid(move)) {
-                        moves.push_back(move);
-                    }
+                    moves.push_back(move);
                 }
                 
-                if (is_in_bounds(right_x, current_y)) {
+                if (is_in_bounds(right_x, current_y) && get_piece_color(get_piece(right_x, current_y)) != pawn_color) {
                     Move move(x, y, right_x, current_y);
-                    if (is_move_valid(move)) {
-                        moves.push_back(move);
-                    }
+                    moves.push_back(move);
                 }
             }
             break;
@@ -812,8 +789,8 @@ bool Chessboard::is_elephant_move_valid(int from_x, int from_y, int to_x, int to
     PieceType elephant = get_piece(from_x, from_y);
     Color elephant_color = get_piece_color(elephant);
     
-    bool is_river_crossed = (elephant_color == Color::RED && to_y < 5) || 
-                          (elephant_color == Color::BLACK && to_y > 4);
+    bool is_river_crossed = (elephant_color == Color::RED && to_y >= 5) || 
+                          (elephant_color == Color::BLACK && to_y <= 4);
     
     if (is_river_crossed) {
         return false;
