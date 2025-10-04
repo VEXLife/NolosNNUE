@@ -289,10 +289,15 @@ SearchResult Search::iterative_deepening(Chessboard& board, const SearchParamete
         }
         
         // 打印搜索信息（新格式）
-        std::cout << "info depth " << depth 
-                  << " score " << static_cast<int>(board.get_current_player() == Color::RED ? score : -score)
-                  << " nps " << nps 
-                  << " time " << time_used;
+        std::cout << "info depth " << depth;
+        int current_score = static_cast<int>(board.get_current_player() == Color::RED ? score : -score);
+        if (current_score >= 10000.0 || current_score <= -10000.0) {
+            std::cout << " mate " << depth;
+        } else {
+            std::cout << " score " << current_score;
+        }
+        std::cout << " nps " << nps;
+        std::cout << " time " << time_used;
         if (!pv_str.empty()) {
             std::cout << " pv " << pv_str;
         }
