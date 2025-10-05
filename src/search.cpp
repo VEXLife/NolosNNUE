@@ -292,7 +292,7 @@ SearchResult Search::iterative_deepening(Chessboard& board, const SearchParamete
         std::cout << "info depth " << depth;
         int current_score = static_cast<int>(board.get_current_player() == Color::RED ? score : -score);
         if (current_score >= 10000.0 || current_score <= -10000.0) {
-            std::cout << " mate " << depth;
+            std::cout << " mate " << current_pv.size();
         } else {
             std::cout << " score " << current_score;
         }
