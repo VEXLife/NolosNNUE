@@ -30,9 +30,15 @@ private:
     // 棋子价值表
     std::array<double, 15> piece_values_;
     
-    // 位置价值表
-    std::array<std::array<double, 9>, 10> red_piece_position_values_;
-    std::array<std::array<double, 9>, 10> black_piece_position_values_;
+    // 三维位置价值表：[棋子类型][y坐标][x坐标]
+    // 使用静态常量定义棋子类型数量和棋盘大小
+    static constexpr int NUM_PIECE_TYPES = 15;
+    static constexpr int BOARD_HEIGHT = 10;
+    static constexpr int BOARD_WIDTH = 9;
+    
+    // 红方和黑方的位置价值表，按棋子类型区分
+    std::array<std::array<std::array<double, BOARD_WIDTH>, BOARD_HEIGHT>, NUM_PIECE_TYPES> red_piece_position_values_;
+    std::array<std::array<std::array<double, BOARD_WIDTH>, BOARD_HEIGHT>, NUM_PIECE_TYPES> black_piece_position_values_;
     
     // 初始化棋子价值
     void initialize_piece_values();

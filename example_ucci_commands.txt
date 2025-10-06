@@ -2,13 +2,13 @@
 ucci
 
 # 设置棋盘位置（中国象棋初始局面）
-position fen rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1
+position fen rCbakabnr/9/1cc6/4p1C1p/p1p6/9/P1P1P1P1P/N8/9/R1BAKABNR b - - 0 1
 
 # 让引擎准备好
 isready
 
 # 开始搜索，使用较短的时间限制（2秒）
-go movetime 2000
+go movetime 5000
 
 # 停止搜索（如果需要）
 # stop

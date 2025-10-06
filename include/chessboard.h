@@ -125,6 +125,7 @@ private:
         std::array<std::array<PieceType, 9>, 10> board;
         Color current_player;
         uint64_t hash;
+        Move move; // 保存到达此状态的着法
     };
     
     // 历史记录栈

@@ -47,30 +47,17 @@ private:
     size_t mask_; // 用于计算索引的掩码
 };
 
-// 着法生成器类（扩展功能，例如 zobrist哈希、重复局面检测等）
+// 着法生成器类（扩展功能，例如吃子着法生成等）
 class MoveGenerator {
 public:
     MoveGenerator();
     ~MoveGenerator() = default;
-    
-    // 生成所有合法着法
-    std::vector<Move> generate_legal_moves(const Chessboard& board);
-    
+        
     // 生成吃子着法（用于静态评估搜索）
     std::vector<Move> generate_capture_moves(const Chessboard& board);
     
     // 计算着法的历史分数
     double get_move_history_score(const Move& move, int depth) const;
-    
-private:
-    // Zobrist哈希表
-    std::array<std::array<uint64_t, 15>, 90> zobrist_table_; // 位置 * 棋子类型
-    
-    // 初始化Zobrist哈希表
-    void initialize_zobrist_table();
-    
-    // 计算局面的Zobrist哈希值
-    uint64_t calculate_hash(const Chessboard& board) const;
 };
 
 // 搜索参数结构体

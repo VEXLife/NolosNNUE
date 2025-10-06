@@ -137,7 +137,7 @@ double Search::alpha_beta(Chessboard& board, int depth, double alpha, double bet
     // 到达搜索深度，进行静态评估搜索
     if (depth == 0) {
         pv.clear();
-        return quiescence_search(board, alpha, beta);
+        return evaluator_->evaluate(board);
     }
     
     // 生成所有合法移动
@@ -575,11 +575,7 @@ bool Search::is_search_complete(int depth, int nodes_searched) const {
 }
 
 MoveGenerator::MoveGenerator() {
-    initialize_zobrist_table();
-}
-
-std::vector<Move> MoveGenerator::generate_legal_moves(const Chessboard& board) {
-    return board.generate_moves();
+    // 初始化空构造函数
 }
 
 std::vector<Move> MoveGenerator::generate_capture_moves(const Chessboard& board) {
@@ -626,41 +622,4 @@ std::vector<Move> MoveGenerator::generate_capture_moves(const Chessboard& board)
 double MoveGenerator::get_move_history_score(const Move& move, int depth) const {
     // 这个函数在MoveGenerator中是一个占位符，实际的历史分数计算在Search类中实现
     return 0.0;
-}
-
-void MoveGenerator::initialize_zobrist_table() {
-    // 初始化Zobrist哈希表
-    std::random_device rd;
-    std::mt19937_64 gen(rd());
-    std::uniform_int_distribution<uint64_t> dist;
-    
-    for (int i = 0; i < 90; i++) {
-        for (int j = 0; j < 15; j++) {
-            zobrist_table_[i][j] = dist(gen);
-        }
-    }
-}
-
-uint64_t MoveGenerator::calculate_hash(const Chessboard& board) const {
-    uint64_t hash = 0;
-    
-    // 计算棋盘上每个位置的哈希值
-    for (int y = 0; y < 10; y++) {
-        for (int x = 0; x < 9; x++) {
-            PieceType piece = board.get_piece(x, y);
-            int position_index = y * 9 + x;
-            int piece_index = static_cast<int>(piece);
-            
-            if (piece != PieceType::EMPTY) {
-                hash ^= zobrist_table_[position_index][piece_index];
-            }
-        }
-    }
-    
-    // 添加当前行棋方的哈希值
-    if (board.get_current_player() == Color::RED) {
-        hash ^= zobrist_table_[89][14]; // 使用最后一个位置和最后一个棋子类型作为行棋方的哈希值
-    }
-    
-    return hash;
 }

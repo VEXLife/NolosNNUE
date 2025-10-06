@@ -1,10 +1,33 @@
 #include "chessboard.h"
+#include "ucci.h"
 #include <iostream>
 #include <sstream>
 #include <cassert>
 #include <random>
 
+// 全局Zobrist哈希表
+static uint64_t zobrist_table[90][15]; // 90个位置，15种棋子类型
+
+// 初始化Zobrist哈希表
+static void initialize_zobrist_table() {
+    static bool initialized = false;
+    if (!initialized) {
+        std::random_device rd;
+        std::mt19937_64 gen(rd());
+        std::uniform_int_distribution<uint64_t> dist;
+        
+        for (int i = 0; i < 90; i++) {
+            for (int j = 0; j < 15; j++) {
+                zobrist_table[i][j] = dist(gen);
+            }
+        }
+        initialized = true;
+    }
+}
+
 Chessboard::Chessboard() : current_player_(Color::RED), hash_(0) {
+    // 确保Zobrist哈希表被初始化
+    initialize_zobrist_table();
     initialize();
 }
 
@@ -257,24 +280,34 @@ bool Chessboard::is_move_valid(const Move& move) const {
     }
 }
 
+inline int get_pos_index(int x, int y) {
+    return y * 9 + x;
+}
+
 bool Chessboard::make_move(const Move& move) {
     // 保存当前状态到历史记录
     BoardHistory history;
     history.board = board_;
     history.current_player = current_player_;
     history.hash = hash_;
+    history.move = move; // 保存着法信息
     history_.push_back(history);
     
     // 执行移动
     PieceType captured_piece = get_piece(move.to_x, move.to_y);
-    set_piece(move.to_x, move.to_y, get_piece(move.from_x, move.from_y));
+    PieceType moved_piece = get_piece(move.from_x, move.from_y);
+    set_piece(move.to_x, move.to_y, moved_piece);
     set_piece(move.from_x, move.from_y, PieceType::EMPTY);
     
     // 切换行棋方
     current_player_ = (current_player_ == Color::RED) ? Color::BLACK : Color::RED;
     
     // 更新哈希值
-    update_hash();
+    auto from_pos_index = get_pos_index(move.from_x, move.from_y);
+    auto to_pos_index = get_pos_index(move.to_x, move.to_y);
+    hash_ ^= zobrist_table[from_pos_index][static_cast<int>(moved_piece)];
+    hash_ ^= zobrist_table[from_pos_index][static_cast<int>(PieceType::EMPTY)];
+    hash_ ^= zobrist_table[to_pos_index][static_cast<int>(captured_piece)];
     
     return captured_piece == PieceType::RED_KING || captured_piece == PieceType::BLACK_KING;
 }
@@ -294,6 +327,14 @@ void Chessboard::undo_move(const Move& move) {
     history_.pop_back();
 }
 
+// 辅助方法：检查两个移动是否相同
+bool is_move_same(const Move& move1, const Move& move2) {
+    return move1.from_x == move2.from_x && 
+           move1.from_y == move2.from_y && 
+           move1.to_x == move2.to_x && 
+           move1.to_y == move2.to_y;
+}
+
 std::vector<Move> Chessboard::generate_moves() const {
     std::vector<Move> moves;
     
@@ -306,6 +347,46 @@ std::vector<Move> Chessboard::generate_moves() const {
             if (piece != PieceType::EMPTY && get_piece_color(piece) == current_player_) {
                 std::vector<Move> piece_moves = generate_piece_moves(x, y);
                 moves.insert(moves.end(), piece_moves.begin(), piece_moves.end());
+            }
+        }
+    }
+    
+    // 检查是否有重复的历史着法需要避开
+    // 用户提供的思路：比较历史着法最近的-4步是否与-8~-5步一样
+    // 如果一样说明出现了重复，此时下一步不能走-4步那个着法就能避开循环
+    if (history_.size() >= 8) {
+        // 比较最近的-4步和-8~-5步的局面序列是否相同
+        bool is_pattern_repeated = true;
+        for (int i = 0; i < 4; i++) {
+            if (!is_move_same(history_[history_.size() - 4 + i].move, history_[history_.size() - 8 + i].move)) {
+                is_pattern_repeated = false;
+                break;
+            }
+        }
+        
+        if (is_pattern_repeated) {
+            // 模式重复，现在可以直接从历史记录中获取-4步的着法
+            Move avoid_move = history_[history_.size() - 4].move;
+            std::cout << "Avoid duplicate move: " << UcciUtils::move_to_ucci(avoid_move) << std::endl;
+            
+            // 过滤掉与avoid_move相同的着法
+            std::vector<Move> filtered_moves;
+            for (const Move& move : moves) {
+                // 检查是否与要避开的着法相同
+                bool is_same_move = (move.from_x == avoid_move.from_x &&
+                                     move.from_y == avoid_move.from_y &&
+                                     move.to_x == avoid_move.to_x &&
+                                     move.to_y == avoid_move.to_y);
+                
+                // 如果不是要避开的着法，就保留
+                if (!is_same_move) {
+                    filtered_moves.push_back(move);
+                }
+            }
+            
+            // 如果过滤后还有着法，就返回过滤后的列表
+            if (!filtered_moves.empty()) {
+                moves = filtered_moves;
             }
         }
     }
@@ -716,19 +797,26 @@ bool Chessboard::is_in_palace(int x, int y, Color color) const {
 }
 
 void Chessboard::update_hash() {
-    // 简单实现，实际应用中应该使用Zobrist哈希
+    // 使用Zobrist哈希计算棋盘哈希值
     hash_ = 0;
     
-    // 为了演示，使用一个简单的哈希计算
+    // 计算棋盘上每个位置的哈希值
     for (int y = 0; y < 10; y++) {
         for (int x = 0; x < 9; x++) {
             PieceType piece = get_piece(x, y);
-            hash_ = hash_ * 131 + static_cast<int>(piece);
+            int position_index = get_pos_index(x, y);
+            int piece_index = static_cast<int>(piece);
+            
+            if (piece != PieceType::EMPTY) {
+                hash_ ^= zobrist_table[position_index][piece_index];
+            }
         }
     }
     
-    // 添加当前行棋方到哈希值
-    hash_ = hash_ * 131 + static_cast<int>(current_player_);
+    // 添加当前行棋方的哈希值
+    if (current_player_ == Color::RED) {
+        hash_ ^= zobrist_table[89][14]; // 使用最后一个位置和最后一个棋子类型作为行棋方的哈希值
+    }
 }
 
 bool Chessboard::is_king_move_valid(int from_x, int from_y, int to_x, int to_y) const {
