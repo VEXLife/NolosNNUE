@@ -92,12 +92,6 @@ public:
     // 检查当前局面是否将军
     bool is_in_check(Color color) const;
     
-    // 检查当前局面是否将死
-    bool is_checkmate(Color color) const;
-    
-    // 检查当前局面是否和棋
-    bool is_stalemate(Color color) const;
-    
     // 获取棋子颜色
     Color get_piece_color(PieceType piece) const;
     

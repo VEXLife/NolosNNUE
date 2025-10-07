@@ -11,16 +11,10 @@ double ManualEvaluator::evaluate(const Chessboard& board) {
     double score = 0.0;
     
     // 评估棋子价值
-    score += evaluate_material(board) * 10;
+    // score += evaluate_material(board) * 20;
     
     // 评估位置价值
     score += evaluate_position(board);
-    
-    // // 评估机动性
-    // score += evaluate_mobility(board);
-    
-    // // 评估威胁
-    // score += evaluate_threats(board);
     
     return board.get_current_player() == Color::RED ? score : -score;
 }
@@ -44,103 +38,111 @@ void ManualEvaluator::initialize_piece_values() {
     piece_values_[static_cast<int>(PieceType::BLACK_PAWN)] = -1.0;
 }
 
-void ManualEvaluator::initialize_position_values() {
-    // 初始化所有位置价值为0
-    for (int p = 0; p < NUM_PIECE_TYPES; p++) {
-        for (int y = 0; y < BOARD_HEIGHT; y++) {
-            for (int x = 0; x < BOARD_WIDTH; x++) {
-                red_piece_position_values_[p][y][x] = 0.0;
-                black_piece_position_values_[p][y][x] = 0.0;
-            }
-        }
-    }
-    
+void ManualEvaluator::initialize_position_values() {    
     // 初始化红方车(RED_CHARIOT)的位置价值
     int chariot_type = static_cast<int>(PieceType::RED_CHARIOT);
-    for (int y = 0; y < BOARD_HEIGHT; y++) {
-        for (int x = 0; x < BOARD_WIDTH; x++) {
-            // 车在九宫附近和河道附近价值更高
-            if ((x >= 1 && x <= 7) || (y >= 4 && y <= 5)) {
-                red_piece_position_values_[chariot_type][y][x] += 5.0;
-            }
-            
-            // 车靠近对方将帅位置价值大幅提升（黑方九宫区域）
-            if (y < 3 && x >= 3 && x <= 5) {
-                red_piece_position_values_[chariot_type][y][x] += 8.0;
-                // 特别靠近黑方将帅位置(4,9)的镜像位置(4,0)附近价值更高
-                double distance_to_king = std::sqrt(std::pow(x - 4, 2) + std::pow(y - 0, 2));
-                if (distance_to_king < 2.0) {
-                    red_piece_position_values_[chariot_type][y][x] += 6.0;
-                }
-            }
-        }
-    }
-    
-    // 初始化红方马(RED_HORSE)的位置价值
-    int horse_type = static_cast<int>(PieceType::RED_HORSE);
-    for (int y = 0; y < BOARD_HEIGHT; y++) {
-        for (int x = 0; x < BOARD_WIDTH; x++) {
-            // 马在河口和九宫附近价值更高
-            if ((y == 3 || y == 6) && (x >= 2 && x <= 6)) {
-                red_piece_position_values_[horse_type][y][x] += 3.0;
-            }
-            
-            // 马靠近对方将帅位置价值提升（黑方九宫区域）
-            if (y < 4 && x >= 2 && x <= 6) {
-                red_piece_position_values_[horse_type][y][x] += 4.0;
-                // 特别靠近黑方将帅位置附近价值更高
-                double distance_to_king = std::sqrt(std::pow(x - 4, 2) + std::pow(y - 0, 2));
-                if (distance_to_king < 3.0) {
-                    red_piece_position_values_[horse_type][y][x] += 3.0;
-                }
-            }
-        }
-    }
+    red_piece_position_values_[chariot_type] = {
+        8.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 8.0, 
+        10.0, 10.0, 10.0, 11.0, 10.0, 11.0, 10.0, 10.0, 10.0, 
+        10.0, 10.0, 10.0, 11.0, 10.0, 11.0, 10.0, 10.0, 10.0, 
+        10.0, 10.0, 10.0, 12.0, 12.0, 12.0, 10.0, 10.0, 10.0, 
+        10.0, 10.0, 10.0, 12.0, 12.0, 12.0, 10.0, 10.0, 10.0, 
+        10.0, 10.0, 10.0, 12.0, 12.0, 12.0, 10.0, 10.0, 10.0, 
+        10.0, 10.0, 10.0, 12.0, 12.0, 12.0, 10.0, 10.0, 10.0, 
+        12.0, 12.0, 12.0, 12.0, 12.0, 12.0, 12.0, 12.0, 12.0,  
+        12.0, 12.0, 12.0, 12.0, 12.0, 12.0, 12.0, 12.0, 12.0,  
+        12.0, 12.0, 12.0, 12.0, 12.0, 12.0, 12.0, 12.0, 12.0,  
+    };
     
     // 初始化红方炮(RED_CANNON)的位置价值
     int cannon_type = static_cast<int>(PieceType::RED_CANNON);
-    for (int y = 0; y < BOARD_HEIGHT; y++) {
-        for (int x = 0; x < BOARD_WIDTH; x++) {
-            // 炮在有炮架的位置价值更高
-            if ((x == 1 || x == 7) && (y == 2 || y == 7)) {
-                red_piece_position_values_[cannon_type][y][x] += 4.0;
-            }
-            
-            // 炮在可以攻击对方将帅的位置价值提升
-            // 特别在对方九宫区域（x >= 3 && x <= 5, y < 3）
-            if (y < 3 && x >= 3 && x <= 5) {
-                red_piece_position_values_[cannon_type][y][x] += 6.0;
-                // 在可以直线攻击将帅的位置价值更高
-                if (x == 4) {
-                    red_piece_position_values_[cannon_type][y][x] += 4.0;
-                }
-            }
-        }
-    }
+    red_piece_position_values_[cannon_type] = {
+        4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 
+        4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 
+        4.0, 4.0, 4.0, 4.0, 8.0, 4.0, 4.0, 4.0, 4.0, 
+        4.0, 4.0, 4.0, 4.0, 8.0, 4.0, 4.0, 4.0, 4.0, 
+        4.0, 4.0, 4.0, 4.0, 8.0, 4.0, 4.0, 4.0, 4.0, 
+        4.0, 4.0, 4.0, 4.0, 8.0, 4.0, 4.0, 4.0, 4.0, 
+        4.0, 4.0, 4.0, 4.0, 8.0, 4.0, 4.0, 4.0, 4.0, 
+        4.0, 4.0, 4.0, 4.0, 8.0, 4.0, 4.0, 4.0, 4.0, 
+        4.0, 4.0, 4.0, 4.0, 8.0, 4.0, 4.0, 4.0, 4.0, 
+        8.0, 8.0, 8.0, 6.0, 8.0, 6.0, 8.0, 8.0, 8.0, 
+    };
+    
+    // 初始化红方马(RED_HORSE)的位置价值
+    int horse_type = static_cast<int>(PieceType::RED_HORSE);
+    red_piece_position_values_[horse_type] = {
+        3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 
+        3.0, 4.0, 4.0, 6.0, 4.0, 6.0, 4.0, 4.0, 3.0, 
+        3.0, 4.0, 6.0, 6.0, 6.0, 6.0, 6.0, 4.0, 3.0, 
+        3.0, 4.0, 6.0, 6.0, 6.0, 6.0, 6.0, 4.0, 3.0, 
+        3.0, 4.0, 6.0, 6.0, 6.0, 6.0, 6.0, 4.0, 3.0, 
+        6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 
+        6.0, 6.0, 6.0, 8.0, 8.0, 8.0, 6.0, 6.0, 6.0, 
+        6.0, 6.0, 8.0, 8.0, 8.0, 8.0, 8.0, 6.0, 6.0, 
+        6.0, 6.0, 8.0, 8.0, 8.0, 8.0, 8.0, 6.0, 6.0, 
+        6.0, 6.0, 8.0, 8.0, 8.0, 8.0, 8.0, 6.0, 6.0, 
+    };
     
     // 初始化红方兵(RED_PAWN)的位置价值
     int pawn_type = static_cast<int>(PieceType::RED_PAWN);
-    for (int y = 0; y < BOARD_HEIGHT; y++) {
-        for (int x = 0; x < BOARD_WIDTH; x++) {
-            // 兵过河价值增加，越靠近九宫价值越高
-            if (y < 5) {
-                red_piece_position_values_[pawn_type][y][x] += 5.0 + (4 - y) * 2.0;
-            }
-        }
-    }
+    red_piece_position_values_[pawn_type] = {
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        1.0, 0.0, 2.0, 0.0, 3.0, 0.0, 2.0, 0.0, 1.0,
+        2.0, 0.0, 4.0, 0.0, 4.0, 0.0, 4.0, 0.0, 2.0,
+        3.0, 3.0, 4.0, 4.0, 5.0, 4.0, 4.0, 3.0, 3.0,
+        4.0, 4.0, 5.0, 6.0, 6.0, 6.0, 5.0, 4.0, 4.0,
+        4.0, 5.0, 6.0, 6.0, 6.0, 6.0, 6.0, 5.0, 4.0,
+        4.0, 5.0, 6.0, 6.0, 8.0, 6.0, 6.0, 5.0, 4.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    };
     
-    // 为其他红方棋子设置基础位置价值
-    int king_type = static_cast<int>(PieceType::RED_KING);
+    // 初始化红方士(RED_ADVISOR)的位置价值
     int advisor_type = static_cast<int>(PieceType::RED_ADVISOR);
-    int elephant_type = static_cast<int>(PieceType::RED_ELEPHANT);
+    red_piece_position_values_[advisor_type] = {
+        0.0, 0.0, 0.0, 2.0, 0.0, 2.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    };
     
-    // 红方将/帅在九宫中心附近价值更高
-    for (int y = 7; y <= 9; y++) {
-        for (int x = 3; x <= 5; x++) {
-            double distance_to_center = std::sqrt(std::pow(x - 4, 2) + std::pow(y - 8, 2));
-            red_piece_position_values_[king_type][y][x] = 10.0 - distance_to_center * 2.0;
-        }
-    }
+    // 初始化红方象(RED_ELEPHANT)的位置价值
+    int elephant_type = static_cast<int>(PieceType::RED_ELEPHANT);
+    red_piece_position_values_[elephant_type] = {
+        0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        2.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 2.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    };
+    
+    // 初始化红方帅(RED_KING)的位置价值
+    int king_type = static_cast<int>(PieceType::RED_KING);
+    red_piece_position_values_[king_type] = {
+        0.0, 0.0, 0.0, 1000.0, 1000.0, 1000.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 997.0, 997.0, 997.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 997.0, 997.0, 997.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    };
     
     // 初始化黑方棋子的位置价值（红方的镜像）
     for (int p = 1; p <= 7; p++) { // 红方棋子类型1-7
@@ -184,76 +186,6 @@ double ManualEvaluator::evaluate_position(const Chessboard& board) const {
     }
     
     return position_score;
-}
-
-double ManualEvaluator::evaluate_mobility(const Chessboard& board) const {
-    double mobility_score = 0.0;
-    
-    // 为当前行棋方的机动性加分
-    Color current_player = board.get_current_player();
-    
-    // 临时棋盘，用于生成移动
-    Chessboard temp_board = board;
-    std::vector<Move> moves = temp_board.generate_moves();
-    
-    // 当前行棋方每有一个合法移动，获得一定的分数
-    if (current_player == Color::RED) {
-        mobility_score += moves.size() * 5.0;
-    } else {
-        mobility_score -= moves.size() * 5.0;
-    }
-    
-    // 切换行棋方，评估对方的机动性
-    temp_board.set_current_player(current_player == Color::RED ? Color::BLACK : Color::RED);
-    std::vector<Move> opponent_moves = temp_board.generate_moves();
-    
-    // 对方每有一个合法移动，扣除一定的分数
-    if (current_player == Color::RED) {
-        mobility_score -= opponent_moves.size() * 5.0;
-    } else {
-        mobility_score += opponent_moves.size() * 5.0;
-    }
-    
-    return mobility_score;
-}
-
-double ManualEvaluator::evaluate_threats(const Chessboard& board) const {
-    double threat_score = 0.0;
-    
-    // 检查将军情况
-    if (board.is_in_check(Color::BLACK)) {
-        // 红方将军，加分
-        threat_score += 100.0;
-    }
-    
-    if (board.is_in_check(Color::RED)) {
-        // 黑方将军，减分
-        threat_score -= 100.0;
-    }
-    
-    // 检查将死情况
-    if (board.is_checkmate(Color::BLACK)) {
-        // 红方将死黑方，大幅加分
-        threat_score += 10000.0;
-    }
-    
-    if (board.is_checkmate(Color::RED)) {
-        // 黑方将死红方，大幅减分
-        threat_score -= 10000.0;
-    }
-    
-    // 检查困毙情况
-    if (board.is_stalemate(Color::BLACK)) {
-        // 黑方困毙，加分
-        threat_score += 500.0;
-    }
-    
-    if (board.is_stalemate(Color::RED)) {
-        // 红方困毙，减分
-        threat_score -= 500.0;
-    }
-    
-    return threat_score;
 }
 
 #ifdef USE_ONNX

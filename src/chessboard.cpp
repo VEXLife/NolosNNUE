@@ -354,7 +354,8 @@ std::vector<Move> Chessboard::generate_moves() const {
     // 检查是否有重复的历史着法需要避开
     // 用户提供的思路：比较历史着法最近的-4步是否与-8~-5步一样
     // 如果一样说明出现了重复，此时下一步不能走-4步那个着法就能避开循环
-    if (history_.size() >= 8) {
+    // 只在我方没有被将杀时才需要检查重复着法
+    if (!is_in_check(current_player_) && history_.size() >= 8) {
         // 比较最近的-4步和-8~-5步的局面序列是否相同
         bool is_pattern_repeated = true;
         for (int i = 0; i < 4; i++) {
@@ -435,56 +436,6 @@ bool Chessboard::is_in_check(Color color) const {
     }
     
     return false;
-}
-
-bool Chessboard::is_checkmate(Color color) const {
-    // 如果不在将军状态，不可能是将死
-    if (!is_in_check(color)) {
-        return false;
-    }
-    
-    // 创建临时棋盘以避免修改原始对象
-    Chessboard temp_board = *this;
-    temp_board.set_current_player(color);
-    
-    // 生成所有可能的移动
-    std::vector<Move> all_moves = temp_board.generate_moves();
-    
-    // 检查是否有任何移动可以解除将军状态
-    for (const Move& move : all_moves) {
-        // 创建一个临时棋盘，模拟移动后的状态
-        Chessboard board_after_move = temp_board;
-        board_after_move.make_move(move);
-        
-        if (!board_after_move.is_in_check(color)) {
-            return false;
-        }
-    }
-    
-    // 没有任何移动可以解除将军状态，被将死
-    return true;
-}
-
-bool Chessboard::is_stalemate(Color color) const {
-    // 如果在将军状态，不可能是困毙
-    if (is_in_check(color)) {
-        return false;
-    }
-    
-    // 保存当前行棋方
-    Color original_player = current_player_;
-    
-    // 临时设置行棋方为检查困毙的一方
-    Chessboard temp_board = *this;
-    temp_board.set_current_player(color);
-    
-    // 生成所有可能的移动
-    std::vector<Move> all_moves = temp_board.generate_moves();
-    
-    // 如果没有合法移动且不在将军状态，则为困毙
-    bool has_valid_moves = !all_moves.empty();
-    
-    return !has_valid_moves;
 }
 
 Color Chessboard::get_piece_color(PieceType piece) const {
