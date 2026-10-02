@@ -1,0 +1,29 @@
+name: Validate engine and bootstrap
+on:
+  push:
+    branches: [seed]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: cargo test && cargo build --release --bins && scripts/build-web.sh
+      - run: python3 scripts/check_protocol.py
+      - run: uv sync --frozen --extra cpu
+      - run: uv run --frozen --extra cpu python -m unittest discover -s tests -p 'test_*.py'
+      - run: |
+          target/release/selfplay --games 8 --nodes 512 --depth 2 --threads 2 --output /tmp/ci-selfplay.jsonl
+          uv run --frozen --extra cpu -m trainer.train --data /tmp/ci-selfplay.jsonl --output /tmp/ci.nnue --epochs 2
+          node scripts/check_wasm.mjs web/nolos_nnue.wasm /tmp/ci.nnue
+          uv run --frozen --extra cpu -m scripts.check_network --data /tmp/ci-selfplay.jsonl --weights /tmp/ci.nnue --samples 20

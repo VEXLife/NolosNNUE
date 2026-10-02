@@ -1,0 +1,27 @@
+[package]
+name = "nolos-nnue"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+description = "Self-bootstrapping Gomoku engine with native and WASM Yixin protocol"
+license = "MIT"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "nolos-nnue"
+path = "src/main.rs"
+
+[[bin]]
+name = "selfplay"
+path = "src/bin/selfplay.rs"
+
+[[bin]]
+name = "arena"
+path = "src/bin/arena.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"

@@ -1,0 +1,54 @@
+// The UI renders authoritative Rust status. All legality and search stay in WASM.
+const $ = id => document.getElementById(id);
+const worker = new Worker(new URL('worker.js', import.meta.url), {type:'module'});
+let ready = false, busy = false, state = {size:15,rule:0,next:1,winner:0,board:'0'.repeat(225),history:[]}, forbids = new Set(), best = null, started = 0, searchKind = null, pendingAuto = false, requestId = 0;
+const canvas = $('board'), ctx = canvas.getContext('2d');
+function notice(message='') { $('notice').textContent = message; $('notice').hidden = !message; }
+function log(line) { const el=$('protocol-log'); el.textContent = (el.textContent + line + '\n').split('\n').slice(-700).join('\n'); el.scrollTop=el.scrollHeight; }
+function send(lines) { if(!ready)return; if(typeof lines==='string')lines=[lines]; lines.forEach(x=>log('→ '+x)); worker.postMessage({type:'commands',lines,requestId:++requestId}); }
+function settings() { return [`INFO timeout_turn ${$('time').value}`,`INFO max_depth ${Math.max(1,Number($('max-depth').value)||8)}`,`INFO max_node ${Math.max(1,Number($('max-nodes').value)||500000)}`]; }
+function rows(history=state.history, own=state.next, size=state.size) { return history.map(([p,c])=>`${p%size},${Math.floor(p/size)},${c===own?1:2}`); }
+function sync(history=state.history, own=history.length%2+1, thinking=false) { return [thinking?'BOARD':'YXBOARD',...rows(history,own),'DONE']; }
+function status() { send(['YXSTATUS', ...(Number($('rule').value)===2?['YXSHOWFORBID']:[])]); }
+function setBusy(value) { busy=value; $('stop').disabled=!busy; $('engine-status').textContent=busy?'引擎思考中':ready?'引擎就绪 · 浏览器本地计算':'正在加载引擎'; $('engine-dot').className='dot '+(busy?'thinking':ready?'ready':''); for(const id of ['mode','rule','size','weights-file','import-position'])$(id).disabled=!ready||busy; for(const id of ['undo','analyze','new-game','play-best','use-hce','load-url'])$(id).disabled=!ready||busy||(id==='play-best'&&!best); }
+function humanTurn() { return $('mode').value==='analysis'||state.next===($('mode').value==='black'?1:2); }
+function search(suggest=false) { if(busy||state.winner||state.history.length>=state.size**2)return; best=null; started=performance.now(); searchKind=suggest?'suggest':'move'; setBusy(true); send([...settings(),...sync(state.history,state.next,!suggest),...(suggest?['YXSUGGEST']:[])]); }
+function newGame() { notice(); searchKind=null; setBusy(false); best=null; forbids.clear(); pendingAuto=true; send([`START ${$('size').value}`,`INFO rule ${$('rule').value}`,'YXSTATUS',...(Number($('rule').value)===2?['YXSHOWFORBID']:[])]); }
+function render() {
+ const n=state.size, width=canvas.clientWidth||600, dpr=window.devicePixelRatio||1;canvas.width=width*dpr;canvas.height=width*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);
+ const pad=width*.065, step=(width-2*pad)/(n-1);ctx.fillStyle='#cfb98c';ctx.fillRect(0,0,width,width);ctx.strokeStyle='#796c50';ctx.lineWidth=.8;
+ for(let i=0;i<n;i++){let p=pad+i*step;ctx.beginPath();ctx.moveTo(p,pad);ctx.lineTo(p,width-pad);ctx.moveTo(pad,p);ctx.lineTo(width-pad,p);ctx.stroke();}
+ const stars=n===15?[3,7,11]:n===9?[2,4,6]:[];for(const x of stars)for(const y of stars){ctx.beginPath();ctx.arc(pad+x*step,pad+y*step,2.5,0,Math.PI*2);ctx.fillStyle='#796c50';ctx.fill();}
+ ctx.font=`${Math.max(9,step*.28)}px system-ui`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#6d624d';for(let i=0;i<n;i++){ctx.fillText(String.fromCharCode(65+i),pad+i*step,pad*.37);ctx.fillText(String(i+1),pad*.37,pad+i*step);}
+ for(let p=0;p<n*n;p++){const c=Number(state.board[p]);const x=pad+p%n*step,y=pad+Math.floor(p/n)*step;if(c){const g=ctx.createRadialGradient(x-step*.12,y-step*.13,0,x,y,step*.44);g.addColorStop(0,c===1?'#606060':'#fff');g.addColorStop(1,c===1?'#111':'#d4d2c8');ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,step*.43,0,Math.PI*2);ctx.shadowColor='#0005';ctx.shadowBlur=3;ctx.shadowOffsetY=2;ctx.fill();ctx.shadowBlur=ctx.shadowOffsetY=0;}else if(forbids.has(p)&&state.next===1){ctx.strokeStyle='#a14c3d';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x-3,y-3);ctx.lineTo(x+3,y+3);ctx.moveTo(x+3,y-3);ctx.lineTo(x-3,y+3);ctx.stroke();}}
+ const last=state.history.at(-1);if(last){const [p,c]=last;ctx.fillStyle=c===1?'#d7de9a':'#627340';ctx.beginPath();ctx.arc(pad+p%n*step,pad+Math.floor(p/n)*step,step*.09,0,Math.PI*2);ctx.fill();}
+ if(best){ctx.strokeStyle='#ab3f2b';ctx.lineWidth=2;ctx.beginPath();ctx.arc(pad+best[0]*step,pad+best[1]*step,step*.3,0,Math.PI*2);ctx.stroke();}
+ $('turn-stone').className='mini-stone '+(state.next===1?'black':'white');$('turn-text').textContent=state.winner?`${state.winner===1?'黑':'白'}方获胜`:`${state.next===1?'黑':'白'}方落子`;$('move-counter').textContent=`第 ${state.history.length} 手`;$('position-status').textContent=state.winner?'对局结束':state.history.length===n*n?'棋盘已满':busy?'正在搜索…':humanTurn()?'点击交点落子':'等待引擎落子';
+}
+function play(x,y) { if(!ready||busy||state.winner)return;notice();best=null;pendingAuto=true;send([...sync(state.history,state.next),`PLAY ${x},${y}`,'YXSTATUS',...(state.rule===2?['YXSHOWFORBID']:[])]); }
+canvas.addEventListener('click',event=>{if(!humanTurn())return;const r=canvas.getBoundingClientRect(),pad=r.width*.065,step=(r.width-2*pad)/(state.size-1),x=Math.round((event.clientX-r.left-pad)/step),y=Math.round((event.clientY-r.top-pad)/step);if(x>=0&&y>=0&&x<state.size&&y<state.size)play(x,y);});
+new ResizeObserver(render).observe(canvas);
+worker.onmessage=({data})=>{
+ if(data.type==='ready'){ready=true;setBusy(false);newGame();return;}
+ if(data.type==='error'){notice(data.error);searchKind=null;setBusy(false);if(!ready){$('engine-status').textContent='引擎加载失败';$('engine-dot').className='dot error';}return;}
+ if(data.type==='weights'){if(data.ok){$('evaluator-tag').textContent='NNUE';$('weights-name').textContent=`已加载 ${data.name} · SHA-256 ${data.hash}`;notice();}else notice('权重格式校验失败，保留原评估器。');return;}
+ if(data.type==='busy'){if(data.requestId===requestId){setBusy(data.busy);if(!data.busy)searchKind=null;render();}return;}
+ if(data.type==='idle'){render();return;}
+ if(data.type!=='line')return; const line=data.line;log('← '+line);
+ if(line.startsWith('ERROR ')){notice(line.slice(6));pendingAuto=false;if(searchKind){searchKind=null;setBusy(false);}}
+ if(line.startsWith('MESSAGE STATUS ')){try{state=JSON.parse(line.slice(15));$('size').value=state.size;$('rule').value=state.rule;forbids.clear();render();if(pendingAuto){pendingAuto=false;if(!humanTurn()&&!state.winner)search();}}catch(e){notice(`状态解析失败: ${e}`);}return;}
+ if(line.startsWith('FORBID ')){forbids.clear();const s=line.slice(7).replace(/\.$/,'');for(let i=0;i+3<s.length;i+=4){const x=Number(s.slice(i,i+2)),y=Number(s.slice(i+2,i+4));forbids.add(y*state.size+x);}render();return;}
+ const move=line.match(/^(SUGGEST )?(\d+),(\d+)$/);if(move){if(move[1]){best=[+move[2],+move[3]];searchKind=null;setBusy(false);render();}else if(searchKind==='move'){setBusy(false);searchKind=null;status();}return;}
+ if(line.startsWith('INFO ')){const [,key,...tail]=line.split(' '),v=tail.join(' ');if(key==='DEPTH')$('depth').textContent=v;if(key==='NODES')$('nodes').textContent=Number(v).toLocaleString();if(key==='EVAL'){$('eval-value').textContent=v;$('eval-caption').textContent='搜索方视角';}if(key==='WINRATE')$('balance-fill').style.width=`${Math.max(0,Math.min(1,Number(v)))*100}%`;if(key==='BESTLINE'){$('pv').replaceChildren(...v.split(/\s+/).filter(Boolean).map(item=>{const s=document.createElement('span');s.className='pv-move';const [x,y]=item.split(',').map(Number);s.textContent=Number.isFinite(y)?`${String.fromCharCode(65+x)}${y+1}`:item;return s;}));}$('elapsed').textContent=`${((performance.now()-started)/1000).toFixed(1)} s`;}
+};
+$('new-game').onclick=newGame;for(const id of ['mode','rule','size'])$(id).onchange=()=>{if(busy)send('YXSTOP');newGame();};
+$('stop').onclick=()=>send('YXSTOP');$('analyze').onclick=()=>search(true);$('play-best').onclick=()=>{if(best)play(...best);};
+$('undo').onclick=()=>{if(!state.history.length)return;best=null;const count=$('mode').value==='analysis'?1:humanTurn()&&state.history.length>1?2:1;const history=state.history.slice(0,-count);send([...sync(history,history.length%2+1),'YXSTATUS',...(state.rule===2?['YXSHOWFORBID']:[])]);};
+$('export-position').onclick=()=>{const blob=new Blob([JSON.stringify({format:'NolosNNUE-v1',size:state.size,rule:state.rule,history:state.history},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='NolosNNUE-position.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+$('import-position').onchange=async event=>{try{if(busy)throw Error('请先停止思考');const file=event.target.files[0];if(!file)return;const p=JSON.parse(await file.text());if(![9,15,20].includes(p.size)||![0,1,2].includes(p.rule)||!Array.isArray(p.history)||p.history.length>p.size*p.size)throw Error('棋谱格式错误');const seen=new Set();p.history.forEach(([q,c],i)=>{if(!Number.isInteger(q)||q<0||q>=p.size*p.size||c!==i%2+1||seen.has(q))throw Error('棋谱必须按黑白交替的落子顺序排列');seen.add(q);});$('mode').value='analysis';$('size').value=p.size;$('rule').value=p.rule;best=null;send([`START ${p.size}`,`INFO rule ${p.rule}`,'YXBOARD',...rows(p.history,p.history.length%2+1,p.size),'DONE','YXSTATUS',...(p.rule===2?['YXSHOWFORBID']:[])]);notice();}catch(e){notice(e.message);}event.target.value='';};
+async function weights(bytes,name){if(!ready||busy)throw Error('请先等待引擎就绪并停止思考');const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))).map(x=>x.toString(16).padStart(2,'0')).join('');worker.postMessage({type:'weights',bytes,name,hash},[bytes]);}
+$('weights-file').onchange=async e=>{try{const f=e.target.files[0];if(f)await weights(await f.arrayBuffer(),f.name);}catch(err){notice(err.message);}e.target.value='';};
+$('load-url').onclick=async()=>{try{if(busy)throw Error('请先停止思考');const url=new URL($('weights-url').value,location.href);if(!['https:','http:'].includes(url.protocol))throw Error('请使用 HTTP 或 HTTPS URL');const response=await fetch(url);if(!response.ok)throw Error(`下载失败: HTTP ${response.status}`);await weights(await response.arrayBuffer(),url.pathname.split('/').at(-1)||url.hostname);}catch(e){notice(`加载失败: ${e.message}。跨域地址需要允许 CORS。`);}};
+$('use-hce').onclick=()=>{send('YXUNLOADNNUE');$('evaluator-tag').textContent='HCE 基线';$('weights-name').textContent='当前使用手写棋形评估，不需要权重。';notice();};
+$('command-form').onsubmit=e=>{e.preventDefault();const value=$('command-input').value.trim();if(value){if(/^(BEGIN|BOARD|YXGO|TURN|YXSUGGEST)\b/i.test(value)){searchKind=/^YXSUGGEST\b/i.test(value)?'suggest':'move';started=performance.now();setBusy(true);}send(value.split('\n'));$('command-input').value='';if(!busy)status();}};$('clear-log').onclick=()=>{$('protocol-log').textContent='';};
+render();setBusy(false);worker.postMessage({type:'init'});

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="NolosNNUE：从棋形评估自举训练的五子棋引擎，在浏览器本地运行。">
+  <meta name="theme-color" content="#111917">
+  <title>NolosNNUE · 五子棋实验室</title><link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><a class="brand" href="./"><span class="brand-mark">✳</span> NolosNNUE<span class="brand-sub">五子棋实验室</span></a><div class="engine-state"><span id="engine-dot" class="dot"></span><span id="engine-status">正在加载引擎</span></div></header>
+<main>
+  <section class="play-section">
+    <div class="intro"><span class="eyebrow">从棋形，到直觉</span><h1>下一步，由你。</h1><p>在浏览器里探索一个从零自举的五子棋引擎。</p></div>
+    <div class="board-card"><div class="board-top"><div class="turn"><span id="turn-stone" class="mini-stone black"></span><span id="turn-text">黑方先行</span></div><span id="move-counter">第 0 手</span></div><canvas id="board" aria-label="五子棋棋盘，点击交点落子" role="img"></canvas><div class="board-bottom"><span id="position-status" role="status">点击棋盘开始对弈</span><button id="export-position" class="text-button">导出棋谱 ↗</button></div></div>
+    <div class="actions"><button id="new-game" class="primary">新对局</button><button id="undo">悔棋</button><button id="analyze">分析局面</button><button id="play-best" disabled>采用建议</button><button id="stop" disabled>停止思考</button></div>
+    <div id="notice" class="notice" role="alert" hidden></div>
+  </section>
+  <aside>
+    <section class="panel"><div class="panel-heading"><h2>引擎评估</h2><span id="evaluator-tag" class="tag">HCE 基线</span></div><div class="evaluation"><strong id="eval-value">—</strong><span id="eval-caption">等待分析</span></div><div class="balance"><span id="balance-fill"></span></div><div class="metrics"><div><small>深度</small><b id="depth">—</b></div><div><small>节点</small><b id="nodes">—</b></div><div><small>用时</small><b id="elapsed">—</b></div></div><div class="pv-area"><small>主要变化</small><div id="pv">搜索后显示建议路线</div></div></section>
+    <section class="panel"><div class="panel-heading"><h2>对局设置</h2></div><div class="settings"><label>模式<select id="mode"><option value="black">我执黑</option><option value="white">我执白</option><option value="analysis">自由摆棋 / 分析</option></select></label><label>规则<select id="rule"><option value="0">自由五子棋</option><option value="1">标准五子棋 · 恰好五连</option><option value="2">连珠 · 黑方有禁手</option></select></label><label>棋盘<select id="size"><option value="15">15 × 15</option><option value="20">20 × 20</option><option value="9">9 × 9</option></select></label><label>每步用时<select id="time"><option value="1000">1 秒</option><option value="3000" selected>3 秒</option><option value="10000">10 秒</option><option value="30000">30 秒</option></select></label><label>最大深度<input id="max-depth" type="number" min="1" max="64" value="8"></label><label>节点上限<input id="max-nodes" type="number" min="1" max="100000000" value="500000"></label></div><p class="hint">模式、规则或棋盘变化会开始新对局。分析模式可自由落子，也可导入按落子顺序排列的棋谱。</p><label class="import-label">导入棋谱<input id="import-position" type="file" accept=".json,application/json"></label></section>
+    <section class="panel weights-panel"><div class="panel-heading"><h2>神经网络权重</h2><span class="tag subdued">NNUE</span></div><p id="weights-name">当前使用手写棋形评估，不需要权重。</p><label class="file-button">加载本地权重<input id="weights-file" type="file" accept=".nnue,application/octet-stream"></label><div class="url-row"><input id="weights-url" type="url" placeholder="权重文件 URL" aria-label="权重文件 URL"><button id="load-url">加载</button></div><button id="use-hce" class="text-button">恢复 HCE 基线</button><p class="hint">权重和计算保留在浏览器中。支持本项目的 .nnue 格式；跨域 URL 需允许 CORS。</p></section>
+  </aside>
+  <section class="protocol-panel"><details><summary>协议控制台 <span>查看同一引擎的 Yixin 命令与响应</span></summary><pre id="protocol-log" aria-live="off"></pre><form id="command-form"><input id="command-input" placeholder="例如 ABOUT、YXSHOWFORBID" aria-label="Yixin 协议命令"><button>发送</button><button type="button" id="clear-log">清空</button></form></details></section>
+</main>
+<footer><span>NOLOS NNUE</span><span>Rust · WASM · 自生成训练数据</span><a href="https://github.com/VEXLife/NolosNNUE" id="source-link">源代码</a></footer>
+<script type="module" src="app.js"></script>
+</body>
+</html>

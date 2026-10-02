@@ -1,0 +1,88 @@
+{
+  "schema": 1,
+  "date": "2026-10-02",
+  "teacher": "hce",
+  "external_data": false,
+  "external_weights": false,
+  "promoted": false,
+  "selfplay": {
+    "games": 512,
+    "positions": 8597,
+    "seed": 1,
+    "exploration": 0.1,
+    "size": 15,
+    "rule": 0,
+    "nodes": 1500,
+    "depth": 3,
+    "branch": 12,
+    "q_depth": 6,
+    "threads": 4
+  },
+  "training": {
+    "device": "cpu",
+    "accumulator": "sparse_embedding_bag",
+    "seed": 42,
+    "split_seed": 42,
+    "epochs": 60,
+    "batch_size": 128,
+    "threads": 2,
+    "train_positions": 7196,
+    "validation_positions": 1401,
+    "validation_games": 75,
+    "best_epoch": 1
+  },
+  "arena": {
+    "baseline": "hce",
+    "pairs": 128,
+    "seed": 900000,
+    "nodes": 1500,
+    "depth": 3,
+    "branch": 12,
+    "threads": 4
+  },
+  "file_sha256": {
+    "artifacts/hce-selfplay.jsonl": "8f51a3df38c2a590cd7680d2358e29ccac12b5256e49b0ecf0586ca8f447d8b0",
+    "artifacts/generation-0.nnue": "da32c0c7f9933bec6da459619d10a3a96a9ae929efe25adce8ea0ec05528aab4",
+    "artifacts/generation-0.pt": "3072ee77c90527a43556e491372081a184e6cf39fd0a3f33ab677bca6ee8fabd",
+    "artifacts/generation-0.training.json": "d41989e36301aa4115595c5ca7be7b6bb27211389c60985d8d79075e789a872a",
+    "artifacts/generation-0.arena.json": "fa70d017692ca8ad45e47adfe33a827452eb0a56f55a76407f93655d5b76f660"
+  },
+  "environment": {
+    "python": "3.14.6",
+    "torch": "2.14.1+cpu",
+    "numpy": "2.5.2",
+    "rust": "rustc 1.98.1 (48a229cea 2026-09-01) (Arch Linux rust 1:1.98.1-2)",
+    "platform": "Linux-7.2.2-x86_64-with-glibc2.44",
+    "cuda_tested": false
+  },
+  "engine_source_sha256": {
+    "src/bin/arena.rs": "7eaec05c7a45a75c2394244708d3f15fb41c092edb5535bf5a51df1df5c924f1",
+    "src/bin/selfplay.rs": "95eb2231c63381531bc1ba44ba72343cf85ced35614dc42c4f11d756f260904c",
+    "src/board.rs": "6f55eeee1aef1ee8ad8a3c5ee95c41d23f861bd607927c1aed2334b9b090f75a",
+    "src/experiment.rs": "0e091ac822f909840d268e842a11fc815a2f99a96acb87ac6bef2e399dffbb58",
+    "src/lib.rs": "1b7aa0d6ed56b02c286309907e10dfe8bc651dd10c92bebf7806349584763bb8",
+    "src/main.rs": "c5314907044a1a2e83b3f39ea0d020e69244971fa0138dfdc8125c63434032ea",
+    "src/network.rs": "7f40fd23ca35c67fd197cce738fb2de6d2efdb870e678adba9113f71e1517e44",
+    "src/protocol.rs": "5510e7552a569ef1a8afe45eba95080081b452bfb4393469f873dc9028b864c6",
+    "src/search.rs": "e9f9dd728cfcefe6eefcd0444f1d9f9a90a17776222d9066f2cab6f1e22a7a62",
+    "src/wasm.rs": "f25919b33d7cfbef2db24f3005dee39255b6e49dad88318054690e84f6b32e0b"
+  },
+  "validation": {
+    "rust_tests": 14,
+    "python_tests": 4,
+    "native_protocol": "passed",
+    "wasm_abi_protocol": "passed",
+    "backend_comparison_positions": 100,
+    "maximum_allowed_score_difference": 1,
+    "dense_training_on_cpu": "passed, not a CUDA benchmark",
+    "sparse_checkpoint_reproduction": "one epoch, seed 42; byte-identical to the original best checkpoint",
+    "headed_browser": "passed; screenshots deleted",
+    "bootstrap_generations": 2,
+    "partial_and_complete_stage_resume": "passed"
+  },
+  "notes": [
+    "The original CPU sparse pilot preceded the GPU trainer additions. Its best checkpoint was reproduced byte-for-byte after those additions.",
+    "Raw JSONL and .pt checkpoints remain local and are excluded from Git. Parallel JSONL output ordering may change its SHA-256 when regenerated.",
+    "No NVIDIA training throughput or utilization measurements were made."
+  ]
+}

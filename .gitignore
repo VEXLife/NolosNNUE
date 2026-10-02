@@ -1,0 +1,11 @@
+/target/
+/.venv/
+/.toolchains/
+/.uv-cache/
+**/__pycache__/
+/runs/
+/engine
+/Yixin-Board/
+/artifacts/*.jsonl
+/artifacts/smoke.*
+/artifacts/*.pt
