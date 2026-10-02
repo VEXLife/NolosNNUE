@@ -1,7 +1,7 @@
 use nolos_nnue::board::{mix64, Board, Rule};
 use nolos_nnue::experiment::*;
 use nolos_nnue::search::MATE;
-use std::io::{BufWriter, Write};
+use std::io::{BufWriter, IsTerminal, Write};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
@@ -140,6 +140,8 @@ fn work() -> Result<(), String> {
     }
     drop(tx);
     let mut writer = BufWriter::new(file);
+    let interactive = std::io::stderr().is_terminal();
+    let mut progress_visible = false;
     let (mut positions, mut finished, mut truncated) = (0usize, 0usize, 0usize);
     for (game, samples, winner) in rx {
         finished += 1;
@@ -172,10 +174,20 @@ fn work() -> Result<(), String> {
             positions += 1;
         }
         if finished % 16 == 0 || finished == games {
-            eprintln!(
+            let progress = format!(
                 "selfplay {finished}/{games}, {positions} positions, {truncated} truncated games"
             );
+            if interactive {
+                eprint!("\r{progress}");
+                std::io::stderr().flush().map_err(|e| e.to_string())?;
+                progress_visible = true;
+            } else {
+                eprintln!("{progress}");
+            }
         }
+    }
+    if progress_visible {
+        eprintln!();
     }
     writer.flush().map_err(|e| e.to_string())?;
     for handle in handles {

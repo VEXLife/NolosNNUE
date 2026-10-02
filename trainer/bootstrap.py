@@ -22,6 +22,29 @@ def atomic_json(path, value):
     temporary.replace(path)
 
 
+def relay_output(stream, log, output):
+    """Keep complete logs while refreshing self-play progress on terminals."""
+    interactive = output.isatty()
+    progress_visible = False
+    try:
+        for line in stream:
+            log.write(line)
+            log.flush()
+            if interactive and line.startswith('selfplay '):
+                output.write('\r' + line.rstrip('\r\n'))
+                progress_visible = True
+            else:
+                if progress_visible:
+                    output.write('\n')
+                    progress_visible = False
+                output.write(line)
+            output.flush()
+    finally:
+        if progress_visible:
+            output.write('\n')
+            output.flush()
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--run-dir', type=Path, required=True)
@@ -124,8 +147,7 @@ def main():
             with (folder / f'{name}.log').open('w') as log:
                 proc = subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
                 try:
-                    for line in proc.stdout:
-                        log.write(line); log.flush(); print(line, end='', flush=True)
+                    relay_output(proc.stdout, log, sys.stdout)
                     if proc.wait() != 0:
                         raise RuntimeError(f'{name} failed; see {folder / (name + ".log")}')
                 except BaseException:
