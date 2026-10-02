@@ -40,6 +40,7 @@ Search uses its own board copy. Stopping commits only the chosen move to the pro
 | `max_memory` | Reduce the transposition-table budget; not a hard process-wide memory limit |
 | `thread_num` | One search thread satisfies any positive upper limit; native also has an input-only thread |
 | `thread_split_depth` | Ignored; no search task splitting |
+| `show_detail` | Positive values enable Yixin log statistics and `MESSAGE REALTIME` PV updates; 0 disables them |
 | Other INFO | Silently ignored; no automatic pondering |
 
 Analysis output is compatible with the local Yixin-Board: `INFO NUMPV 1`, `INFO PV 0`, `INFO DEPTH`, `INFO NODES`, `INFO EVAL`, `INFO WINRATE`, `INFO BESTLINE`, and `INFO PV DONE`. WINRATE maps evaluation through a sigmoid; it is not a probability calibrated against external competition. Winning scores use `+M`/`-M`, but selective search is not an exhaustive formal proof.
@@ -54,7 +55,7 @@ Analysis output is compatible with the local Yixin-Board: `INFO NUMPV 1`, `INFO 
 | `YXLOADNNUE PATH` | Native loads from a file and replies `OK`; WASM receives bytes from its host |
 | `YXUNLOADNNUE` | Restore HCE, clear the table, and reply `OK` |
 | `YXEVAL` | `MESSAGE EVAL value`, from the engine's perspective |
-| `YXSHOWINFO` | Report maximum search threads and hash capacity to the GUI |
+| `YXSHOWINFO` | Report engine name, version, evaluator, maximum search threads and hash capacity |
 | `YXSHOWHASHUSAGE` | Report allocated transposition-table capacity |
 
 Stop searching before changing the evaluator. Invalid weights retain the previous network. Unsupported additional commands, including databases, `YXNBEST` multi-PV, Swap2/Soosõrv opening negotiation, and blocked paths, return `UNKNOWN`. Implementing the core original protocol does not imply support for all Rapfi private GUI extensions.

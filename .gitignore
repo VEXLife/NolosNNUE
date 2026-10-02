@@ -9,3 +9,4 @@
 /artifacts/*.jsonl
 /artifacts/smoke.*
 /artifacts/*.pt
+settings.txt # Yixin-Board Settings

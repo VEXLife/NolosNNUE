@@ -39,6 +39,7 @@
 | `max_memory` | 降低置换表预算；不是整个进程的硬内存限制 |
 | `thread_num` | 一个搜索线程，满足任意正数上限；原生还有仅负责输入的线程 |
 | `thread_split_depth` | 无任务分割，忽略 |
+| `show_detail` | 正数启用 Yixin 日志统计与 `MESSAGE REALTIME` 主变化；0 关闭 |
 | 其他 INFO | 静默忽略；不主动 pondering |
 
 分析输出兼容本地 Yixin-Board：`INFO NUMPV 1`、`INFO PV 0`、`INFO DEPTH`、`INFO NODES`、`INFO EVAL`、`INFO WINRATE`、`INFO BESTLINE`、`INFO PV DONE`。WINRATE 是评估值的 sigmoid 映射，不是经外部比赛校准的概率。必胜分以 `+M`/`-M` 输出，但选择性搜索不等同完整形式证明。
@@ -53,7 +54,7 @@
 | `YXLOADNNUE PATH` | 原生从文件加载，成功答 `OK`；WASM 由宿主上传字节 |
 | `YXUNLOADNNUE` | 恢复 HCE，清空表，答 `OK` |
 | `YXEVAL` | `MESSAGE EVAL 数值`，引擎方视角 |
-| `YXSHOWINFO` | 告知 GUI 最大搜索线程数与哈希容量 |
+| `YXSHOWINFO` | 输出引擎名称、版本、评估器，并告知 GUI 最大搜索线程数与哈希容量 |
 | `YXSHOWHASHUSAGE` | 输出已分配置换表容量 |
 
 改变评估器需先停止搜索；错误权重不替换旧网络。未实现的附加命令，例如数据库、`YXNBEST` 多 PV、Swap2/Soosõrv 开局协商、阻断路径，返回 `UNKNOWN`，不会假装成功。支持原文协议核心不代表实现 Rapfi 对 GUI 的全部私有扩展。

@@ -23,6 +23,7 @@ pub struct Engine {
     increment: f64,
     pending_error: Option<String>,
     commit_search: bool,
+    show_detail: bool,
 }
 
 impl Default for Engine {
@@ -47,6 +48,7 @@ impl Engine {
             increment: 0.0,
             pending_error: None,
             commit_search: true,
+            show_detail: false,
         }
     }
 
@@ -290,6 +292,11 @@ impl Engine {
             "YXSHOWINFO" => vec![
                 "MESSAGE INFO MAX_THREAD_NUM 1".into(),
                 "MESSAGE INFO MAX_HASH_SIZE 16".into(),
+                format!(
+                    "MESSAGE NolosNNUE {} | evaluator: {} | search: alpha-beta | threads: 1 | max hash: 64 MB",
+                    env!("CARGO_PKG_VERSION"),
+                    if self.network.is_some() { "NNUE" } else { "HCE" }
+                ),
             ],
             "YXSHOWHASHUSAGE" => {
                 let bytes = self
@@ -395,6 +402,11 @@ impl Engine {
         let (key, value) = arg.split_once(char::is_whitespace).unwrap_or((arg, ""));
         let number = value.trim().parse::<i64>();
         match key.to_ascii_lowercase().as_str() {
+            "show_detail" => {
+                if let Ok(n) = number {
+                    self.show_detail = n > 0;
+                }
+            }
             "rule" => {
                 if let Ok(n) = number {
                     match i32::try_from(n)
@@ -518,6 +530,9 @@ impl Engine {
             Some(s) => s.advance(batch, now),
             None => return Vec::new(),
         };
+        if self.show_detail && self.search.as_ref().unwrap().done {
+            return self.finish();
+        }
         let mut out = update
             .as_ref()
             .map(|info| self.analysis(info))
@@ -545,7 +560,7 @@ impl Engine {
         } else {
             info.score.to_string()
         };
-        vec![
+        let mut out = vec![
             "INFO NUMPV 1".into(),
             "INFO PV 0".into(),
             format!("INFO DEPTH {}", info.depth),
@@ -557,11 +572,32 @@ impl Engine {
             ),
             format!("INFO BESTLINE {pv}"),
             "INFO PV DONE".into(),
-        ]
+        ];
+        if self.show_detail {
+            if let Some(p) = info.best {
+                out.push(format!("MESSAGE REALTIME BEST {},{}", p % n, p / n));
+            }
+            out.push(format!("MESSAGE REALTIME VAL {}", info.score));
+            out.push(format!("MESSAGE REALTIME PV {pv}"));
+            out.push(format!(
+                "MESSAGE depth={} nodes={} eval={eval} winrate={:.1}% PV {pv}",
+                info.depth,
+                info.nodes,
+                100.0 / (1.0 + (-(info.score as f64) / 600.0).exp())
+            ));
+        }
+        out
     }
 
     fn finish(&mut self) -> Vec<String> {
         let search = self.search.take().unwrap();
+        // A time/node limit or YXSTOP may end between completed iterations.
+        // Include the final node count and fallback PV even at depth zero.
+        let mut out = if self.show_detail {
+            self.analysis(&search.result)
+        } else {
+            Vec::new()
+        };
         let info = search.result;
         self.table = Some(search.table);
         if let Some(p) = info.best {
@@ -572,14 +608,15 @@ impl Engine {
             }
             if self.commit_search {
                 self.board.make(p, self.own);
-                vec![format!("{},{}", p % self.board.size, p / self.board.size)]
+                out.push(format!("{},{}", p % self.board.size, p / self.board.size));
             } else {
-                vec![format!(
+                out.push(format!(
                     "SUGGEST {},{}",
                     p % self.board.size,
                     p / self.board.size
-                )]
+                ));
             }
+            out
         } else {
             Self::error("no legal moves")
         }

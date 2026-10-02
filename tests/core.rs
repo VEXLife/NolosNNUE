@@ -315,3 +315,65 @@ fn network_loader_rejects_bad_header_checksum_and_nonfinite_parameters() {
     bytes[24..28].copy_from_slice(&checksum.to_le_bytes());
     assert!(Network::load(&bytes).is_err());
 }
+
+#[test]
+fn yixin_startup_reports_visible_engine_identity_and_limits() {
+    let mut e = Engine::new();
+    let out = e.command("yxshowinfo", 0.0);
+    assert!(out.iter().any(|s| s == "MESSAGE INFO MAX_THREAD_NUM 1"));
+    assert!(out.iter().any(|s| s == "MESSAGE INFO MAX_HASH_SIZE 16"));
+    assert!(out
+        .iter()
+        .any(|s| s.starts_with("MESSAGE NolosNNUE ") && s.contains("evaluator: HCE")));
+}
+
+#[test]
+fn yixin_detail_reports_iterations_and_final_stats_without_extra_moves() {
+    let mut e = Engine::new();
+    e.command("INFO show_detail 3", 0.0);
+    e.command("INFO max_depth 2", 0.0);
+    e.command("INFO max_node 100000", 0.0);
+    e.command("BEGIN", 0.0);
+    let mut out = Vec::new();
+    while e.busy() {
+        out.extend(e.tick(1, 0.0));
+    }
+    assert!(out.iter().any(|s| s.starts_with("MESSAGE depth=1 nodes=")
+        && s.contains("eval=")
+        && s.contains(" PV ")));
+    assert!(out.iter().any(|s| s.starts_with("MESSAGE depth=2 nodes=")));
+    assert!(out.iter().any(|s| s.starts_with("MESSAGE REALTIME PV ")));
+    assert_eq!(
+        out.iter()
+            .filter(|s| s.starts_with("MESSAGE depth=2 "))
+            .count(),
+        1
+    );
+    assert_eq!(out.iter().filter(|s| !s.contains(' ')).count(), 1);
+    assert_eq!(e.board.history.len(), 1);
+}
+
+#[test]
+fn yixin_detail_reports_depth_zero_on_timeout_and_stop_can_be_quiet() {
+    let mut e = Engine::new();
+    e.command("INFO show_detail 3", 0.0);
+    e.command("INFO timeout_turn 0", 0.0);
+    e.command("YXSUGGEST", 0.0);
+    let out = e.tick(64, 0.0);
+    assert!(out
+        .iter()
+        .any(|s| s.starts_with("MESSAGE depth=0 nodes=0 ")));
+    assert!(out.last().unwrap().starts_with("SUGGEST "));
+    assert!(e.board.history.is_empty());
+
+    e.command("INFO timeout_turn 60000", 0.0);
+    e.command("YXSUGGEST", 0.0);
+    e.tick(10, 0.0);
+    let out = e.command("YXSTOP", 0.0);
+    assert!(out.iter().any(|s| s.starts_with("MESSAGE depth=")));
+    assert!(out.last().unwrap().starts_with("SUGGEST "));
+    assert!(e.command("YXSTOP", 0.0).is_empty());
+    e.command("INFO show_detail 0", 0.0);
+    e.command("YXSUGGEST", 0.0);
+    assert_eq!(e.command("YXSTOP", 0.0).len(), 1);
+}
