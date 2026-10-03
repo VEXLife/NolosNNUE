@@ -1,19 +1,14 @@
-# NolosNNUE web interface
+# 网页
 
-English | [简体中文](README.zh-CN.md)
+项目根目录执行：
 
-This directory is a static website. Run `scripts/build-web.sh` from the repository root to generate `web/nolos_nnue.wasm`, then deploy this directory to an HTTPS static host. No Node.js, backend, shared memory, or COOP/COEP headers are required.
-
-Preview locally:
-
-```sh
-python -m http.server 8080 --directory web
+```bash
+bash scripts/build-web.sh
+python3 -m http.server 8000 --directory web
 ```
 
-Open `http://localhost:8080`. Browsers cannot load the Worker and WASM directly through `file://`.
+打开 http://localhost:8000 。不能从file://运行Worker/WASM；部署只需静态托管 `web/`。
 
-The board renders the Rust engine's `YXSTATUS`; human moves use `PLAY`; game searches use `BOARD ... DONE`; analysis uses `YXSUGGEST`. The Worker sends these commands to the same protocol implementation. The web interface does not implement separate game rules or search algorithms.
+网页通过同一Rust协议引擎进行下棋／分析，不实现另一套棋规。默认HCE，可加载本地或允许CORS的URL网络；坏权重不替换旧网络。更新WASM后刷新页面重建Worker。
 
-Load a local `.nnue` file or an HTTP(S) URL. Remote URLs require the server to allow CORS. Weights are validated locally in the browser; a failed load preserves the existing evaluator. Restoring HCE requires no neural network file.
-
-Exported JSON positions contain the board size, rules, and chronological `[intersection index, actual color]` pairs. The index is `y * size + x`; black is `1` and white is `2`. Importing a position switches to analysis mode.
+默认3秒，复杂杀棋复测可选30秒。胜率显示是估分的sigmoid，不是校准概率。棋谱形如`h8g7g12f10`，支持旋转／镜像及分析不落子。

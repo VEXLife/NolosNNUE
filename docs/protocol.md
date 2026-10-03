@@ -1,7 +1,5 @@
 # Yixin protocol support
 
-English | [简体中文](protocol.zh-CN.md)
-
 Implemented against the [original Yixin protocol](https://github.com/accreator/Yixin-protocol) and [base Gomocup protocol](https://plastovicka.github.io/protocl2en.htm), with the local Yixin-Board `send_board` and analysis parsers checked as references. Commands are case-insensitive and accept CRLF/LF. Coordinates are zero-based: `p = y * size + x`.
 
 Both native and WASM use the Engine in `src/protocol.rs`. Browser JavaScript does not translate to a second game API: it calls the command entry point and uploads weight bytes that would otherwise come from the filesystem.
@@ -41,6 +39,7 @@ Search uses its own board copy. Stopping commits only the chosen move to the pro
 | `thread_num` | One search thread satisfies any positive upper limit; native also has an input-only thread |
 | `thread_split_depth` | Ignored; no search task splitting |
 | `show_detail` | Positive values enable Yixin log statistics and `MESSAGE REALTIME` PV updates; 0 disables them |
+| `selective_search` | Experimental reductions, default off; change only while idle; clears TT |
 | Other INFO | Silently ignored; no automatic pondering |
 
 Analysis output is compatible with the local Yixin-Board: `INFO NUMPV 1`, `INFO PV 0`, `INFO DEPTH`, `INFO NODES`, `INFO EVAL`, `INFO WINRATE`, `INFO BESTLINE`, and `INFO PV DONE`. WINRATE maps evaluation through a sigmoid; it is not a probability calibrated against external competition. Winning scores use `+M`/`-M`, but selective search is not an exhaustive formal proof.
@@ -55,6 +54,7 @@ Analysis output is compatible with the local Yixin-Board: `INFO NUMPV 1`, `INFO 
 | `YXLOADNNUE PATH` | Native loads from a file and replies `OK`; WASM receives bytes from its host |
 | `YXUNLOADNNUE` | Restore HCE, clear the table, and reply `OK` |
 | `YXEVAL` | `MESSAGE EVAL value`, from the engine's perspective |
+| `YXPOLICY` | `MESSAGE POLICY` followed by one raw logit per square (NOLOS002 only; occupied squares included for diagnostics) |
 | `YXSHOWINFO` | Report engine name, version, evaluator, maximum search threads and hash capacity |
 | `YXSHOWHASHUSAGE` | Report allocated transposition-table capacity |
 

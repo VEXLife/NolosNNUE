@@ -4,6 +4,8 @@ pub mod experiment;
 pub mod network;
 pub mod protocol;
 pub mod search;
+pub mod spatial;
+pub mod vcf;
 
 #[cfg(target_arch = "wasm32")]
 mod wasm;

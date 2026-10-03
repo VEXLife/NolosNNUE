@@ -24,6 +24,7 @@ pub struct Engine {
     pending_error: Option<String>,
     commit_search: bool,
     show_detail: bool,
+    selective_search: bool,
 }
 
 impl Default for Engine {
@@ -49,6 +50,7 @@ impl Engine {
             pending_error: None,
             commit_search: true,
             show_detail: false,
+            selective_search: false,
         }
     }
 
@@ -326,6 +328,15 @@ impl Engine {
                 Ok(()) => vec!["OK".into()],
                 Err(e) => Self::error(e),
             },
+            "YXPOLICY" => {
+                let scores: Option<Vec<String>> = (0..self.board.cells.len())
+                    .map(|p| self.board.policy_score(p, self.own).map(|v| format!("{v:.7}")))
+                    .collect();
+                match scores {
+                    Some(scores) => vec![format!("MESSAGE POLICY {}", scores.join(" "))],
+                    None => Self::error("loaded network has no policy head"),
+                }
+            }
             "YXEVAL" => vec![format!("MESSAGE EVAL {}", self.board.evaluate(self.own))],
             "YXGO" => self.start(now),
             "YXSUGGEST" => {
@@ -454,6 +465,14 @@ impl Engine {
                     self.limits.nodes = if n <= 0 { u64::MAX } else { n as u64 };
                 }
             }
+            "selective_search" => {
+                if self.search.is_none() {
+                    if let Ok(n @ (0 | 1)) = number {
+                        self.selective_search = n == 1;
+                        self.clear_hash();
+                    }
+                }
+            }
             "hash_size" => {
                 if let Ok(n) = number {
                     self.resize_hash(n.max(0) as usize);
@@ -518,6 +537,7 @@ impl Engine {
             self.table.take().unwrap(),
             now,
         ));
+        self.search.as_mut().unwrap().selective_search = self.selective_search;
         if self.search.as_ref().unwrap().done {
             self.finish()
         } else {
@@ -573,6 +593,12 @@ impl Engine {
             format!("INFO BESTLINE {pv}"),
             "INFO PV DONE".into(),
         ];
+        if info.vcf_depth > 0 {
+            out.push(format!(
+                "MESSAGE VCF proof {} plies PV {pv}",
+                info.vcf_depth
+            ));
+        }
         if self.show_detail {
             if let Some(p) = info.best {
                 out.push(format!("MESSAGE REALTIME BEST {},{}", p % n, p / n));

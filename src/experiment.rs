@@ -58,7 +58,7 @@ impl Player {
     pub fn new(network: Option<Arc<Network>>, limits: Limits) -> Self {
         Self {
             network,
-            table: Some(Table::new(2048)),
+            table: Some(Table::new(16384)),
             limits,
         }
     }
@@ -145,6 +145,10 @@ pub fn standard_limits(args: &HashMap<String, String>) -> Result<Limits, String>
     let depth = number(args, "depth", 3usize)?;
     let nodes = number(args, "nodes", 2000u64)?;
     let branch = number(args, "branch", 12usize)?;
+    let time_ms = number(args, "time-ms", 1e12f64)?;
+    if !time_ms.is_finite() || time_ms <= 0.0 {
+        return Err("positive finite time-ms required".into());
+    }
     if depth == 0 || depth > 64 || nodes == 0 || branch == 0 || branch > 400 {
         return Err("depth 1..64, positive nodes, branch 1..400 required".into());
     }
@@ -152,8 +156,8 @@ pub fn standard_limits(args: &HashMap<String, String>) -> Result<Limits, String>
         depth,
         nodes,
         branch,
-        qdepth: 6,
-        time_ms: 1e12,
+        qdepth: Limits::default().qdepth,
+        time_ms,
     })
 }
 

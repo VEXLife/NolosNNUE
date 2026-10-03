@@ -2,7 +2,340 @@ use nolos_nnue::board::{Board, Rule};
 use nolos_nnue::network::{Network, FEATURES, HIDDEN};
 use nolos_nnue::protocol::Engine;
 use nolos_nnue::search::{run, Limits, Search, Table, MATE};
+use nolos_nnue::vcf::Vcf;
 use std::sync::Arc;
+
+fn vcf_proof(board: Board, side: u8, depth: usize, nodes: u64) -> Option<Vec<usize>> {
+    let mut search = Vcf::new(board, side, depth, nodes);
+    while !search.done {
+        if let Some(pv) = search.advance(1) {
+            return Some(pv);
+        }
+    }
+    None
+}
+
+#[test]
+fn fast_win_rays_match_independent_full_line_scan() {
+    fn expected(board: &Board, p: usize, color: u8) -> bool {
+        [(1, 0), (0, 1), (1, 1), (1, -1)].iter().any(|(dx, dy)| {
+            let mut count = 1;
+            for sign in [-1, 1] {
+                let (mut x, mut y) = ((p % board.size) as isize + dx * sign,
+                                     (p / board.size) as isize + dy * sign);
+                while x >= 0 && y >= 0 && x < board.size as isize && y < board.size as isize
+                    && board.cells[y as usize * board.size + x as usize] == color {
+                    count += 1;
+                    x += dx * sign;
+                    y += dy * sign;
+                }
+            }
+            if board.rule == Rule::Standard || (board.rule == Rule::Renju && color == 1) {
+                count == 5
+            } else { count >= 5 }
+        })
+    }
+    for size in [5, 9, 15, 20] {
+        let mut board = Board::new(size, Rule::Freestyle).unwrap();
+        // Include long lines, edge wins, and the temporary raw-cell mutations
+        // used by tactical solvers; no make()/cache update is required.
+        for sample in 0..24 {
+            for p in 0..size * size {
+                board.cells[p] = if sample < 3 { sample as u8 } else {
+                    (nolos_nnue::board::mix64((sample * size * size + p) as u64) % 3) as u8
+                };
+            }
+            for rule in [Rule::Freestyle, Rule::Standard, Rule::Renju] {
+                board.rule = rule;
+                for p in 0..size * size {
+                    for color in [1, 2] {
+                        assert_eq!(board.would_win(p, color), expected(&board, p, color),
+                                   "size={size} sample={sample} rule={rule:?} p={p} color={color}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn incremental_win_cache_survives_moves_undo_remove_and_rule_changes() {
+    fn check(board: &mut Board) {
+        for rule in [Rule::Freestyle, Rule::Standard, Rule::Renju] {
+            board.rule = rule;
+            for p in 0..board.cells.len() {
+                for color in [1, 2] {
+                    assert_eq!(board.cached_would_win(p, color), board.would_win(p, color),
+                               "size={} p={p} color={color} rule={rule:?}", board.size);
+                }
+            }
+        }
+    }
+    for size in [5, 9, 15, 20] {
+        let mut board = Board::new(size, Rule::Freestyle).unwrap();
+        check(&mut board);
+        for step in 0..size * size {
+            let mut p = nolos_nnue::board::mix64(step as u64 + 817) as usize % board.cells.len();
+            while board.cells[p] != 0 { p = (p + 1) % board.cells.len(); }
+            board.make(p, (step % 2 + 1) as u8);
+            check(&mut board);
+        }
+        while !board.history.is_empty() {
+            if board.history.len() % 3 == 0 {
+                let p = board.history[board.history.len() / 2].0;
+                board.remove(p).unwrap();
+            } else { board.undo(); }
+            check(&mut board);
+        }
+        // Explicit long lines exercise exact-five -> overline -> five transitions.
+        for p in 0..size { board.make(p, 1); check(&mut board); }
+        while board.undo().is_some() { check(&mut board); }
+        // Direct tactical probes intentionally leave the cache untouched, then
+        // restore cells. Full reconstruction is available for bulk position loads.
+        for p in 0..board.cells.len() { board.cells[p] = (p % 3) as u8; }
+        board.rebuild_win_cache();
+        check(&mut board);
+    }
+}
+
+#[test]
+fn experimental_selectivity_is_opt_in_and_changes_only_between_searches() {
+    let mut engine = Engine::new();
+    assert_eq!(engine.command("START 15", 0.0), vec!["OK"]);
+    for command in ["YXBOARD", "7,7,1", "8,7,2", "DONE", "INFO max_depth 64",
+                    "INFO max_node 1000000", "INFO selective_search 1", "YXSUGGEST"] {
+        engine.command(command, 0.0);
+    }
+    assert!(engine.search.as_ref().unwrap().selective_search);
+    engine.command("INFO selective_search 0", 0.0);
+    assert!(engine.search.as_ref().unwrap().selective_search);
+    engine.command("YXSTOP", 0.0);
+    assert_eq!(engine.board.history.len(), 2);
+    engine.command("INFO selective_search 0", 0.0);
+    engine.command("INFO selective_search 2", 0.0); // Invalid values cannot opt in.
+    engine.command("YXSUGGEST", 0.0);
+    assert!(!engine.search.as_ref().unwrap().selective_search);
+    engine.command("YXSTOP", 0.0);
+}
+
+#[test]
+fn vcf_proves_forcing_win_but_never_ignores_counterwin_or_limits() {
+    let board = position(Rule::Freestyle, &[(4, 7), (5, 7), (6, 7)], &[]);
+    let hash = board.hash;
+    let counts = board.counts.clone();
+    let proof = vcf_proof(board.clone(), 1, 63, 1000).unwrap();
+    assert_eq!(proof.len(), 3);
+    let mut played = board.clone();
+    for (i, p) in proof.iter().enumerate() {
+        let side = (i % 2 + 1) as u8;
+        assert!(played.legal(*p, side));
+        played.make(*p, side);
+        assert!(i == proof.len() - 1 || played.winner().is_none());
+    }
+    assert_eq!(played.winner(), Some(1));
+    assert_eq!(board.hash, hash);
+    assert_eq!(board.counts, counts);
+    assert!(vcf_proof(board.clone(), 1, 1, 1000).is_none());
+    assert!(vcf_proof(board, 1, 63, 1).is_none());
+    let counter = position(
+        Rule::Freestyle,
+        &[(4, 7), (5, 7), (6, 7)],
+        &[(0, 0), (1, 0), (2, 0), (3, 0)],
+    );
+    assert!(vcf_proof(counter, 1, 63, 1000).is_none());
+}
+
+#[test]
+fn pvs_matches_exhaustive_negamax_on_small_quiet_positions() {
+    fn exact(board: &mut Board, side: u8, depth: usize, ply: usize) -> i32 {
+        if let Some(&(p, color)) = board.history.last() {
+            if board.would_win(p, color) {
+                return -MATE + ply as i32;
+            }
+        }
+        let mut candidates = board.candidates();
+        candidates.retain(|p| board.legal(*p, side));
+        if candidates.iter().any(|p| board.would_win(*p, side)) {
+            return MATE - ply as i32 - 1;
+        }
+        if depth == 0 {
+            return board.evaluate(side);
+        }
+        let mut value = -32000;
+        for p in candidates {
+            board.make(p, side);
+            value = value.max(-exact(board, 3 - side, depth - 1, ply + 1));
+            board.undo();
+        }
+        value
+    }
+    for second_black in [6, 7, 11, 13, 16] {
+        let mut board = Board::new(5, Rule::Freestyle).unwrap();
+        for (p, color) in [(12, 1), (0, 2), (second_black, 1), (24, 2)] {
+            board.make(p, color);
+        }
+        let expected = exact(&mut board.clone(), 1, 3, 0);
+        let (actual, _) = run(
+            board,
+            1,
+            Limits {
+                depth: 3,
+                nodes: 1_000_000,
+                time_ms: 1e9,
+                branch: 400,
+                qdepth: 0,
+            },
+            Table::new(1024),
+        );
+        assert_eq!(actual.depth, 3);
+        assert_eq!(actual.score, expected, "second black stone {second_black}");
+    }
+}
+
+#[test]
+fn incremental_candidates_match_full_radius_scan_after_make_undo_and_remove() {
+    fn check(board: &Board) {
+        let expected: Vec<_> = if board.history.is_empty() {
+            vec![(board.size / 2) * board.size + board.size / 2]
+        } else {
+            (0..board.cells.len())
+                .filter(|p| {
+                    board.cells[*p] == 0
+                        && board.history.iter().any(|(q, _)| {
+                            (p % board.size).abs_diff(q % board.size) <= 2
+                                && (p / board.size).abs_diff(q / board.size) <= 2
+                        })
+                })
+                .collect()
+        };
+        assert_eq!(board.candidates(), expected);
+    }
+    for size in [5, 9, 15, 20] {
+        let mut board = Board::new(size, Rule::Freestyle).unwrap();
+        check(&board);
+        for i in 0..20.min(size * size) {
+            let mut p = (nolos_nnue::board::mix64(i as u64 + 15) as usize) % board.cells.len();
+            while board.cells[p] != 0 {
+                p = (p + 1) % board.cells.len();
+            }
+            board.make(p, (i % 2 + 1) as u8);
+            check(&board);
+        }
+        board.remove(board.history[3].0).unwrap();
+        check(&board);
+        while board.undo().is_some() {
+            check(&board);
+        }
+    }
+}
+
+#[test]
+fn vcf_long_line_from_rapfi_loss_survives_every_off_line_defense() {
+    let moves = [
+        112, 96, 81, 83, 67, 97, 95, 109, 53, 39, 69, 68, 84, 98, 114, 99, 100, 110, 124, 115, 108,
+        85, 113, 86, 78, 101, 71, 88, 73, 102, 70, 72, 87,
+    ];
+    let mut board = Board::new(15, Rule::Freestyle).unwrap();
+    for (i, p) in moves.iter().enumerate() {
+        board.make(*p, (i % 2 + 1) as u8);
+    }
+    let proof = vcf_proof(board.clone(), 2, 63, 20000).unwrap();
+    assert_eq!(proof.len(), 7);
+    assert_forcing_proof(board, 2, &proof);
+}
+
+fn assert_forcing_proof(mut board: Board, attacker: u8, proof: &[usize]) {
+    for (i, p) in proof.iter().enumerate() {
+        let side = if i % 2 == 0 { attacker } else { 3 - attacker };
+        if side != attacker {
+            // Independently inspect every legal defense, including squares
+            // outside the solver's candidate area. Other replies lose at once.
+            for alternative in 0..board.cells.len() {
+                if alternative == *p || !board.legal(alternative, side) {
+                    continue;
+                }
+                board.make(alternative, side);
+                assert_ne!(board.winner(), Some(side));
+                assert!((0..board.cells.len())
+                    .any(|q| board.cells[q] == 0 && board.would_win(q, attacker)));
+                board.undo();
+            }
+        }
+        assert!(board.legal(*p, side));
+        board.make(*p, side);
+        assert!(i == proof.len() - 1 || board.winner().is_none());
+    }
+    assert_eq!(board.winner(), Some(attacker));
+}
+
+#[test]
+fn root_vcf_proves_seventeen_plies_even_with_normal_depth_one() {
+    // Perturbation of the saved Rapfi loss, preserving stone counts. The
+    // complete forcing line is checked independently against all defenses.
+    let black = [
+        112, 81, 67, 95, 53, 69, 84, 114, 100, 124, 108, 113, 78, 71, 73, 70, 29,
+    ];
+    let white = [
+        96, 83, 97, 109, 39, 68, 98, 99, 110, 115, 85, 101, 88, 102, 72, 42,
+    ];
+    let mut board = Board::new(15, Rule::Freestyle).unwrap();
+    for (i, p) in black.iter().enumerate() {
+        board.make(*p, 1);
+        if let Some(q) = white.get(i) {
+            board.make(*q, 2);
+        }
+    }
+    let (result, _) = run(
+        board.clone(),
+        2,
+        Limits {
+            depth: 1,
+            nodes: 10000,
+            time_ms: 1e9,
+            branch: 12,
+            qdepth: 0,
+        },
+        Table::new(1024),
+    );
+    assert_eq!(result.depth, 0); // Do not pretend this was full-width depth 17.
+    assert_eq!(result.vcf_depth, 17);
+    assert_eq!(result.score, MATE - 17);
+    assert_eq!(result.pv.len(), 17);
+    assert_forcing_proof(board, 2, &result.pv);
+}
+
+#[test]
+fn root_vcf_proves_thirty_one_ply_line_with_all_defenses_checked() {
+    let black = [
+        112, 81, 67, 53, 69, 100, 124, 108, 78, 71, 70, 87, 139, 125, 3, 66, 161,
+    ];
+    let white = [
+        96, 83, 109, 39, 68, 98, 99, 110, 115, 85, 101, 88, 72, 151, 143, 126,
+    ];
+    let mut board = Board::new(15, Rule::Freestyle).unwrap();
+    for (i, p) in black.iter().enumerate() {
+        board.make(*p, 1);
+        if let Some(q) = white.get(i) {
+            board.make(*q, 2);
+        }
+    }
+    let (result, _) = run(
+        board.clone(),
+        2,
+        Limits {
+            depth: 1,
+            nodes: 10000,
+            time_ms: 1e9,
+            branch: 12,
+            qdepth: 0,
+        },
+        Table::new(1024),
+    );
+    assert_eq!(result.depth, 0);
+    assert_eq!(result.vcf_depth, 31);
+    assert_eq!(result.score, MATE - 31);
+    assert_forcing_proof(board, 2, &result.pv);
+}
 
 fn position(rule: Rule, black: &[(usize, usize)], white: &[(usize, usize)]) -> Board {
     let mut b = Board::new(15, rule).unwrap();
@@ -27,6 +360,7 @@ fn limits() -> Limits {
 #[test]
 fn incremental_features_hash_and_network_match_full_recomputation() {
     let net = Arc::new(Network {
+        spatial: None,
         embedding: (0..FEATURES * HIDDEN)
             .map(|i| ((i * 37 % 101) as f32 - 50.0) * 0.0003)
             .collect(),
@@ -376,4 +710,56 @@ fn yixin_detail_reports_depth_zero_on_timeout_and_stop_can_be_quiet() {
     e.command("INFO show_detail 0", 0.0);
     e.command("YXSUGGEST", 0.0);
     assert_eq!(e.command("YXSTOP", 0.0).len(), 1);
+}
+
+#[test]
+fn spatial_incremental_value_and_policy_match_full_rebuild() {
+    use nolos_nnue::spatial::{SpatialNetwork, PARAMETERS};
+    let values: Vec<f32> = (0..PARAMETERS)
+        .map(|i| ((nolos_nnue::board::mix64(i as u64 + 17) % 10000) as f32 / 10000.0 - 0.5) * 0.3)
+        .collect();
+    let net = std::sync::Arc::new(Network {
+        embedding: vec![],
+        bias: [0.0; HIDDEN],
+        head: [0.0; HIDDEN],
+        tempo: 0.0,
+        spatial: Some(SpatialNetwork::from_values(&values)),
+    });
+    for size in [5, 9, 15, 20] {
+        let mut board = Board::new(size, Rule::Freestyle).unwrap();
+        board.set_network(Some(net.clone()));
+        for turn in 0..120 {
+            if turn % 3 == 2 && !board.history.is_empty() {
+                board.undo();
+            } else if let Some(p) =
+                (0..size * size).find(|p| board.cells[(p * 17 + turn) % (size * size)] == 0)
+            {
+                board.make((p * 17 + turn) % (size * size), (turn % 2 + 1) as u8);
+            }
+            let mut rebuilt = board.clone();
+            rebuilt.rebuild_accumulators();
+            for side in [1, 2] {
+                assert!((board.evaluate(side) - rebuilt.evaluate(side)).abs() <= 1);
+                for p in 0..size * size {
+                    assert!(
+                        (board.policy_score(p, side).unwrap()
+                            - rebuilt.policy_score(p, side).unwrap())
+                        .abs()
+                            < 0.0001
+                    );
+                }
+            }
+        }
+        while board.undo().is_some() {}
+        if size == 15 {
+            for turn in 0..20000 {
+                let p = (turn * 17) % (size * size);
+                board.make(p, (turn % 2 + 1) as u8);
+                board.undo();
+            }
+        }
+        let mut rebuilt = board.clone();
+        rebuilt.rebuild_accumulators();
+        assert!((board.evaluate(1) - rebuilt.evaluate(1)).abs() <= 1);
+    }
 }

@@ -1,10 +1,5 @@
-# Experiment artifacts
+# 模型与实验产物
 
-English | [简体中文](README.zh-CN.md)
+Git仅保留当前 `cloud-gen9.nnue`、固定 `search-vcf-fixtures.json` 与本说明。实验日志、诊断、旧模型、`.pt`、数据及上传包默认忽略，仍保留本地。
 
-- `generation-0.nnue`: candidate from the final corrected small experiment, **not a champion**. HCE self-play produced 8597 training positions from 512 games. In 256 evaluation games it won 108, lost 146, and drew 2, scoring 42.58%; it was not promoted.
-- `generation-0.training.json`: validation grouping, epoch losses, and model SHA-256.
-- `generation-0.arena.json`: 128 independently seeded opening-pair results and approximate interval.
-- `generation-0.manifest.json`: generation parameters, source checksums, and validation record.
-
-See [the experiment record](../docs/experiment.md) for commands. Raw JSONL and PyTorch `.pt` files remain local and are excluded by `.gitignore`. Use the sample for native/browser weight-loading checks; the website defaults to HCE, which outperformed this candidate.
+训练需要 `cloud-gen9.nnue` 与匹配 `.pt`；用 `python -m scripts.package_gen9` 打包两者和最新源码，生成 `gomoku-search-gen9.tgz`。本轮入口见 [训练方案](../docs/training.md)，历史见 [历史摘要](../docs/history.md)。

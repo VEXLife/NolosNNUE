@@ -1,6 +1,5 @@
 use nolos_nnue::board::{mix64, Board, Rule};
 use nolos_nnue::experiment::*;
-use nolos_nnue::search::MATE;
 use std::io::{BufWriter, IsTerminal, Write};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -13,6 +12,8 @@ struct Sample {
     score: i32,
     depth: usize,
     nodes: u64,
+    best_move: usize,
+    vcf_depth: usize,
 }
 
 fn main() {
@@ -110,13 +111,15 @@ fn work() -> Result<(), String> {
                             p = candidates[rng.index(candidates.len().min(5))];
                         }
                     }
-                    if result.depth > 0 && result.score.abs() < MATE - 500 {
+                    if result.depth > 0 || result.vcf_depth > 0 {
                         samples.push(Sample {
                             board: board.clone(),
                             side,
                             score: result.score,
                             depth: result.depth,
                             nodes: result.nodes,
+                            best_move: result.best.unwrap(),
+                            vcf_depth: result.vcf_depth,
                         });
                     }
                     if !board.legal(p, side) {
@@ -169,8 +172,8 @@ fn work() -> Result<(), String> {
                 .map(|(id, n)| format!("[{id},{n}]"))
                 .collect::<Vec<_>>()
                 .join(",");
-            writeln!(writer, "{{\"game\":{game},\"seed\":{seed},\"size\":{size},\"rule\":{},\"side\":{},\"board\":\"{board}\",\"score\":{},\"outcome\":{outcome},\"depth\":{},\"nodes\":{},\"features\":[{features}]}}",
-                rule.id(), sample.side, sample.score, sample.depth, sample.nodes).map_err(|e| e.to_string())?;
+            writeln!(writer, "{{\"game\":{game},\"seed\":{seed},\"size\":{size},\"rule\":{},\"side\":{},\"board\":\"{board}\",\"score\":{},\"outcome\":{outcome},\"depth\":{},\"nodes\":{},\"best_move\":{},\"vcf_depth\":{},\"features\":[{features}]}}",
+                rule.id(), sample.side, sample.score, sample.depth, sample.nodes, sample.best_move, sample.vcf_depth).map_err(|e| e.to_string())?;
             positions += 1;
         }
         if finished % 16 == 0 || finished == games {

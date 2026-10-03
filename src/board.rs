@@ -34,6 +34,14 @@ struct Geometry {
     windows: Vec<[i16; 6]>,
     affected: Vec<Vec<(usize, usize)>>,
     scores: Vec<i32>,
+    canonical: Vec<usize>,
+    inverse: Vec<usize>,
+    neighbors: Vec<Vec<usize>>,
+    local_affected: Vec<Vec<(usize, usize, usize)>>,
+    local_centers: Vec<Vec<usize>>,
+    // Five neighbors each way suffice to distinguish five from an overline.
+    win_rays: Vec<[[[i16; 5]; 2]; 4]>,
+    win_dependents: Vec<Vec<(usize, usize)>>,
 }
 
 #[derive(Clone)]
@@ -46,8 +54,14 @@ pub struct Board {
     pub hash: u64,
     geometry: Arc<Geometry>,
     patterns: Vec<usize>,
+    neighbor_counts: Vec<u8>,
+    // Per color: directional bits for >=5 and exactly 5. Keep both so a
+    // protocol rule change never invalidates the geometric cache.
+    win_masks: Vec<[[u8; 2]; 2]>,
+    win_cache_enabled: bool,
     pub hce: i32,
     pub network: Option<Arc<Network>>,
+    spatial_state: Option<crate::spatial::SpatialState>,
     pub black_acc: [f32; HIDDEN],
     pub white_acc: [f32; HIDDEN],
 }
@@ -145,6 +159,68 @@ impl Board {
             counts[canonical(*id)] += 1;
         }
         let scores = (0..FEATURES).map(pattern_score).collect();
+        let neighbors = (0..size * size)
+            .map(|p| {
+                let (x, y) = (p % size, p / size);
+                let mut nearby = Vec::new();
+                for yy in y.saturating_sub(2)..=(y + 2).min(size - 1) {
+                    for xx in x.saturating_sub(2)..=(x + 2).min(size - 1) {
+                        nearby.push(yy * size + xx);
+                    }
+                }
+                nearby
+            })
+            .collect();
+        let mut local_affected = vec![Vec::new(); size * size];
+        for center in 0..size * size {
+            for (direction, (dx, dy)) in DIRS.iter().enumerate() {
+                for offset in -4isize..=4 {
+                    let x = (center % size) as isize + dx * offset;
+                    let y = (center / size) as isize + dy * offset;
+                    if x >= 0 && y >= 0 && x < size as isize && y < size as isize {
+                        local_affected[y as usize * size + x as usize].push((
+                            center,
+                            direction,
+                            (offset + 4) as usize * 2,
+                        ));
+                    }
+                }
+            }
+        }
+        let local_centers = local_affected
+            .iter()
+            .map(|items| {
+                let mut centers: Vec<_> = items.iter().map(|item| item.0).collect();
+                centers.sort_unstable();
+                centers.dedup();
+                centers
+            })
+            .collect();
+        let win_rays: Vec<[[[i16; 5]; 2]; 4]> = (0..size * size)
+            .map(|p| {
+                let mut rays = [[[-1; 5]; 2]; 4];
+                for (direction, (dx, dy)) in DIRS.iter().enumerate() {
+                    for (half, sign) in [-1, 1].iter().enumerate() {
+                        for step in 1..=5 {
+                            let x = (p % size) as isize + dx * sign * step;
+                            let y = (p / size) as isize + dy * sign * step;
+                            if x >= 0 && y >= 0 && x < size as isize && y < size as isize {
+                                rays[direction][half][step as usize - 1] = (y as usize * size + x as usize) as i16;
+                            }
+                        }
+                    }
+                }
+                rays
+            })
+            .collect();
+        let mut win_dependents = vec![Vec::new(); size * size];
+        for (q, directions) in win_rays.iter().enumerate() {
+            for (direction, halves) in directions.iter().enumerate() {
+                for p in halves.iter().flatten().filter(|p| **p >= 0) {
+                    win_dependents[*p as usize].push((q, direction));
+                }
+            }
+        }
         Ok(Self {
             size,
             cells: vec![0; size * size],
@@ -156,10 +232,21 @@ impl Board {
                 windows,
                 affected,
                 scores,
+                canonical: (0..FEATURES).map(canonical).collect(),
+                inverse: (0..FEATURES).map(invert).collect(),
+                neighbors,
+                local_affected,
+                local_centers,
+                win_rays,
+                win_dependents,
             }),
             patterns,
+            neighbor_counts: vec![0; size * size],
+            win_masks: vec![[[0; 2]; 2]; size * size],
+            win_cache_enabled: true,
             hce: 0,
             network: None,
+            spatial_state: None,
             black_acc: [0.0; HIDDEN],
             white_acc: [0.0; HIDDEN],
         })
@@ -171,13 +258,19 @@ impl Board {
     }
 
     pub fn rebuild_accumulators(&mut self) {
+        if self.win_cache_enabled { self.rebuild_win_cache(); }
+        self.spatial_state = self
+            .network
+            .as_ref()
+            .and_then(|net| net.spatial.as_ref())
+            .map(|net| crate::spatial::SpatialState::new(&self.cells, self.size, net));
         self.black_acc = [0.0; HIDDEN];
         self.white_acc = [0.0; HIDDEN];
-        if let Some(net) = &self.network {
+        if let Some(net) = self.network.as_ref().filter(|net| net.spatial.is_none()) {
             self.black_acc = net.bias;
             self.white_acc = net.bias;
             for (id, n) in self.counts.iter().enumerate().filter(|(_, n)| **n > 0) {
-                let inv = invert(id);
+                let inv = self.geometry.inverse[id];
                 for h in 0..HIDDEN {
                     self.black_acc[h] += *n as f32 / NORMALIZER * net.embedding[id * HIDDEN + h];
                     self.white_acc[h] += *n as f32 / NORMALIZER * net.embedding[inv * HIDDEN + h];
@@ -195,15 +288,47 @@ impl Board {
             self.hash ^= mix64((p * 2 + color as usize) as u64 + 1000);
         }
         self.cells[p] = color;
+        if self.win_cache_enabled {
+            for &(q, direction) in &self.geometry.win_dependents[p] {
+                for side in [1, 2] {
+                    let n = self.win_run(q, side, direction);
+                    let masks = &mut self.win_masks[q][side as usize - 1];
+                    let bit = 1 << direction;
+                    masks[0] = (masks[0] & !bit) | if n >= 5 { bit } else { 0 };
+                    masks[1] = (masks[1] & !bit) | if n == 5 { bit } else { 0 };
+                }
+            }
+        }
+        if prev == 0 && color != 0 {
+            for q in &self.geometry.neighbors[p] {
+                self.neighbor_counts[*q] += 1;
+            }
+        } else if prev != 0 && color == 0 {
+            for q in &self.geometry.neighbors[p] {
+                self.neighbor_counts[*q] -= 1;
+            }
+        }
+        if let (Some(state), Some(net)) = (
+            &mut self.spatial_state,
+            self.network.as_ref().and_then(|net| net.spatial.as_ref()),
+        ) {
+            state.update(
+                &self.geometry.local_affected[p],
+                &self.geometry.local_centers[p],
+                color,
+                net,
+            );
+        }
         for &(w, shift) in &self.geometry.affected[p] {
             let old = self.patterns[w];
             let new = (old & !(3 << shift)) | ((color as usize) << shift);
-            let (old_feature, new_feature) = (canonical(old), canonical(new));
+            let (old_feature, new_feature) =
+                (self.geometry.canonical[old], self.geometry.canonical[new]);
             self.counts[old_feature] -= 1;
             self.counts[new_feature] += 1;
             self.hce += self.geometry.scores[new] - self.geometry.scores[old];
-            if let Some(net) = &self.network {
-                let (old_inv, new_inv) = (invert(old), invert(new));
+            if let Some(net) = self.network.as_ref().filter(|net| net.spatial.is_none()) {
+                let (old_inv, new_inv) = (self.geometry.inverse[old], self.geometry.inverse[new]);
                 for h in 0..HIDDEN {
                     self.black_acc[h] += (net.embedding[new_feature * HIDDEN + h]
                         - net.embedding[old_feature * HIDDEN + h])
@@ -241,10 +366,22 @@ impl Board {
 
     pub fn evaluate(&self, side: u8) -> i32 {
         if let Some(net) = &self.network {
-            net.value(&self.black_acc, &self.white_acc, side)
+            if let (Some(state), Some(spatial)) = (&self.spatial_state, &net.spatial) {
+                state.value(side, spatial)
+            } else {
+                net.value(&self.black_acc, &self.white_acc, side)
+            }
         } else {
             ((if side == 1 { self.hce } else { -self.hce }) / 2 + 20).clamp(-12000, 12000)
         }
+    }
+
+    pub fn policy_score(&self, p: usize, side: u8) -> Option<f32> {
+        Some(
+            self.spatial_state
+                .as_ref()?
+                .policy(p, side, self.network.as_ref()?.spatial.as_ref()?),
+        )
     }
 
     pub fn move_score(&self, p: usize, color: u8) -> i32 {
@@ -259,6 +396,34 @@ impl Board {
         } else {
             -delta
         }
+    }
+
+    /// Necessary (not sufficient) condition for creating a four. Uses the
+    /// incremental six-cell patterns, so callers must not use it during raw
+    /// temporary cell probes. Unlike an evaluation threshold it cannot miss
+    /// a four because another pattern's score decreases.
+    pub(crate) fn could_create_four(&self, p: usize, color: u8) -> bool {
+        static MASKS: std::sync::OnceLock<Vec<[u8; 2]>> = std::sync::OnceLock::new();
+        let masks = MASKS.get_or_init(|| (0..FEATURES).map(|id| {
+            let mut masks = [0; 2];
+            for color in 1..=2 {
+                for offset in 0..=1 {
+                    let mut stones = 0;
+                    let mut empty = 0;
+                    let mut blocked = false;
+                    for j in offset..offset + 5 {
+                        let c = (id >> (j * 2)) & 3;
+                        if c == color { stones += 1; }
+                        else if c == 0 { empty |= 1 << j; }
+                        else { blocked = true; }
+                    }
+                    if !blocked && stones >= 3 { masks[color - 1] |= empty; }
+                }
+            }
+            masks
+        }).collect());
+        self.geometry.affected[p].iter().any(|&(w, shift)|
+            masks[self.patterns[w]][color as usize - 1] & (1 << (shift / 2)) != 0)
     }
 
     pub fn at(&self, x: isize, y: isize) -> u8 {
@@ -282,15 +447,53 @@ impl Board {
         n
     }
 
+    #[inline]
     pub fn would_win(&self, p: usize, color: u8) -> bool {
-        DIRS.iter().any(|d| {
-            let n = self.run(p, color, *d);
-            if self.rule == Rule::Standard || (self.rule == Rule::Renju && color == 1) {
-                n == 5
-            } else {
-                n >= 5
-            }
+        let exact = self.rule == Rule::Standard || (self.rule == Rule::Renju && color == 1);
+        (0..4).any(|direction| {
+            let n = self.win_run(p, color, direction);
+            if exact { n == 5 } else { n >= 5 }
         })
+    }
+
+    #[inline(always)]
+    fn win_run(&self, p: usize, color: u8, direction: usize) -> u8 {
+        let mut n = 1;
+        for half in &self.geometry.win_rays[p][direction] {
+            for q in half {
+                if *q < 0 || self.cells[*q as usize] != color { break; }
+                n += 1;
+            }
+        }
+        n
+    }
+
+    /// O(1) geometric win test on an authoritative make/undo position.
+    /// Raw-cell probes must use would_win(), which observes temporary stones.
+    /// A geometric win still requires legal() for Renju.
+    #[inline]
+    pub fn cached_would_win(&self, p: usize, color: u8) -> bool {
+        if !self.win_cache_enabled { return self.would_win(p, color); }
+        let exact = self.rule == Rule::Standard || (self.rule == Rule::Renju && color == 1);
+        self.win_masks[p][color as usize - 1][usize::from(exact)] != 0
+    }
+
+    // VCF explores few forced branches; maintaining all candidate threats
+    // there costs more than scanning. This copy never returns to main search.
+    pub(crate) fn disable_win_cache(&mut self) { self.win_cache_enabled = false; }
+
+    pub fn rebuild_win_cache(&mut self) {
+        for p in 0..self.cells.len() {
+            for color in [1, 2] {
+                let mut masks = [0; 2];
+                for direction in 0..4 {
+                    let n = self.win_run(p, color, direction);
+                    if n >= 5 { masks[0] |= 1 << direction; }
+                    if n == 5 { masks[1] |= 1 << direction; }
+                }
+                self.win_masks[p][color as usize - 1] = masks;
+            }
+        }
     }
 
     pub fn winner(&self) -> Option<u8> {
@@ -307,25 +510,16 @@ impl Board {
         if self.history.is_empty() {
             return vec![(self.size / 2) * self.size + self.size / 2];
         }
-        let mut marked = vec![false; self.cells.len()];
-        for &(p, _) in &self.history {
-            let (x, y) = ((p % self.size) as isize, (p / self.size) as isize);
-            for dy in -2..=2 {
-                for dx in -2..=2 {
-                    let (xx, yy) = (x + dx, y + dy);
-                    if xx >= 0 && yy >= 0 && xx < self.size as isize && yy < self.size as isize {
-                        let q = yy as usize * self.size + xx as usize;
-                        if self.cells[q] == 0 {
-                            marked[q] = true;
-                        }
-                    }
-                }
-            }
-        }
-        marked
+        self.neighbor_counts
             .iter()
             .enumerate()
-            .filter_map(|(p, v)| if *v { Some(p) } else { None })
+            .filter_map(|(p, n)| {
+                if *n > 0 && self.cells[p] == 0 {
+                    Some(p)
+                } else {
+                    None
+                }
+            })
             .collect()
     }
 

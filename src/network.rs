@@ -14,6 +14,7 @@ pub struct Network {
     pub bias: [f32; HIDDEN],
     pub head: [f32; HIDDEN],
     pub tempo: f32,
+    pub spatial: Option<crate::spatial::SpatialNetwork>,
 }
 
 pub fn canonical(id: usize) -> usize {
@@ -45,6 +46,39 @@ fn checksum(bytes: &[u8]) -> u32 {
 
 impl Network {
     pub fn load(bytes: &[u8]) -> Result<Arc<Self>, String> {
+        if bytes.len() >= 8 && &bytes[..8] == crate::spatial::MAGIC {
+            let expected = 28 + crate::spatial::PARAMETERS * 4;
+            if bytes.len() != expected {
+                return Err("invalid NOLOS002 length".into());
+            }
+            let at = |i| u32::from_le_bytes(bytes[i..i + 4].try_into().unwrap());
+            if at(8) != crate::spatial::FEATURES as u32
+                || at(12) != crate::spatial::CHANNELS as u32
+                || f32::from_bits(at(16)) != 1.0
+                || f32::from_bits(at(20)) != SCALE
+            {
+                return Err("incompatible spatial architecture".into());
+            }
+            if at(24) != checksum(&bytes[28..]) {
+                return Err("network checksum mismatch".into());
+            }
+            let values: Vec<_> = bytes[28..]
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|b| f32::from_le_bytes(*b))
+                .collect();
+            if values.iter().any(|v| !v.is_finite() || v.abs() > 1000.0) {
+                return Err("non-finite or out-of-range network parameters".into());
+            }
+            return Ok(Arc::new(Self {
+                embedding: Vec::new(),
+                bias: [0.0; HIDDEN],
+                head: [0.0; HIDDEN],
+                tempo: 0.0,
+                spatial: Some(crate::spatial::SpatialNetwork::from_values(&values)),
+            }));
+        }
         // Header: magic, feature count, hidden count, normalization, scale, payload checksum.
         let expected = 28 + (FEATURES * HIDDEN + HIDDEN * 2 + 1) * 4;
         if bytes.len() != expected || &bytes[..8] != MAGIC {
@@ -76,6 +110,7 @@ impl Network {
             bias: values[k..k + HIDDEN].try_into().unwrap(),
             head: values[k + HIDDEN..k + 2 * HIDDEN].try_into().unwrap(),
             tempo: values[k + 2 * HIDDEN],
+            spatial: None,
         }))
     }
 

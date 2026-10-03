@@ -26,6 +26,7 @@ fn work() -> Result<(), String> {
             "seed",
             "depth",
             "nodes",
+            "time-ms",
             "branch",
             "threads",
             "max-plies",
@@ -98,7 +99,13 @@ fn work() -> Result<(), String> {
         }));
     }
     drop(tx);
-    let mut results: Vec<_> = rx.into_iter().collect();
+    let mut results = Vec::with_capacity(pairs);
+    for result in rx {
+        results.push(result);
+        if results.len() % 32 == 0 || results.len() == pairs {
+            eprintln!("arena {}/{pairs} opening pairs complete", results.len());
+        }
+    }
     for handle in handles {
         handle.join().map_err(|_| "arena worker panicked")??;
     }
@@ -169,8 +176,8 @@ fn work() -> Result<(), String> {
         })
         .collect::<Vec<_>>()
         .join(",");
-    let report = format!("{{\"schema\":1,\"seed\":{seed},\"rule\":{},\"size\":{size},\"pairs\":{pairs},\"complete_pairs\":{},\"games\":{},\"wins\":{wins},\"losses\":{losses},\"draws\":{draws},\"truncated\":{truncated},\"score\":{score:.6},\"paired_mean\":{paired_mean:.6},\"paired_ci95\":[{lower:.6},{upper:.6}],\"relative_elo\":{elo},\"nodes\":{},\"depth\":{},\"branch\":{},\"results\":[{serialized}]}}",
-        rule.id(), pair_scores.len(), pairs * 2, limits.nodes, limits.depth, limits.branch);
+    let report = format!("{{\"schema\":1,\"seed\":{seed},\"rule\":{},\"size\":{size},\"pairs\":{pairs},\"complete_pairs\":{},\"games\":{},\"wins\":{wins},\"losses\":{losses},\"draws\":{draws},\"truncated\":{truncated},\"score\":{score:.6},\"paired_mean\":{paired_mean:.6},\"paired_ci95\":[{lower:.6},{upper:.6}],\"relative_elo\":{elo},\"nodes\":{},\"depth\":{},\"branch\":{},\"time_ms\":{},\"results\":[{serialized}]}}",
+        rule.id(), pair_scores.len(), pairs * 2, limits.nodes, limits.depth, limits.branch, limits.time_ms);
     if let Some(path) = args.get("output") {
         std::fs::File::create(path)
             .and_then(|mut f| writeln!(f, "{report}"))

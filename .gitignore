@@ -6,7 +6,13 @@
 /runs/
 /engine
 /Yixin-Board/
-/artifacts/*.jsonl
-/artifacts/smoke.*
-/artifacts/*.pt
 settings.txt # Yixin-Board Settings
+/.agent/
+/gen4(1)(1)(1).tgz
+/references/
+
+# Generated models, diagnostics, datasets and upload bundles stay local.
+/artifacts/*
+!/artifacts/README.md
+!/artifacts/cloud-gen9.nnue
+!/artifacts/search-vcf-fixtures.json

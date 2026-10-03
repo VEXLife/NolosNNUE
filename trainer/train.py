@@ -13,7 +13,61 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch.nn import functional as F
-from trainer.model import NNUE, FEATURES
+from trainer.model import NNUE, FEATURES, NORMALIZER
+from trainer.checksum import sha256_file
+
+
+def make_grad_scaler(enabled):
+    # torch.amp exists in older releases without exposing GradScaler.
+    scaler = getattr(getattr(torch, "amp", None), "GradScaler", None)
+    if scaler is not None:
+        return scaler("cuda", enabled=enabled)
+    return torch.cuda.amp.GradScaler(enabled=enabled)
+
+
+def target_entropy(targets):
+    # BCE cannot reach zero for the soft search/outcome labels.
+    targets = targets.double()
+    return -(torch.special.xlogy(targets, targets)
+             + torch.special.xlogy(1 - targets, 1 - targets)).sum()
+
+
+def accumulators(model, items, dense):
+    if dense:
+        values = items[0] @ torch.cat((model.embedding, model.embedding[model.inverse]), dim=1) / NORMALIZER
+        return (values + model.bias.repeat(2)).chunk(2, dim=1)
+    return tuple(F.embedding_bag(ids, model.embedding, items[2], mode='sum',
+        per_sample_weights=items[1] / NORMALIZER, include_last_offset=True) + model.bias
+        for ids in (items[0], model.inverse[items[0]]))
+
+
+@torch.no_grad()
+def revive_flat_units(model, items, dense, seed, init_scale):
+    """Recycle units contributing exactly zero on every calibration position.
+
+    Only training positions may be used for calibration. Setting the new head
+    weights to zero preserves predictions on that calibration set at restart.
+    """
+    flat = torch.ones_like(model.head, dtype=torch.bool)
+    positions = 0
+    for b in items:
+        black, white = accumulators(model, b, dense)
+        flat &= (((black <= 0) & (white <= 0)) | ((black >= 1) & (white >= 1))).all(dim=0)
+        positions += len(black)
+    if positions == 0:
+        raise ValueError('training positions required to revive flat units')
+    units = flat.nonzero().flatten()
+    generator = torch.Generator(device=model.embedding.device).manual_seed(seed)
+    embedding = torch.randn((FEATURES, len(units)), generator=generator,
+                            device=model.embedding.device) * init_scale
+    # Empty/boundary/color-invariant patterns are extremely frequent. Avoid
+    # making their random offsets saturate a revived tower before learning.
+    invariant = model.inverse == torch.arange(FEATURES, device=model.embedding.device)
+    embedding[invariant] = 0
+    model.embedding[:, units] = embedding
+    model.bias[units] = 0.4
+    model.head[units] = 0
+    return units.cpu().tolist()
 
 
 def batch(samples, device, outcome_weight):
@@ -31,11 +85,11 @@ def batch(samples, device, outcome_weight):
         (ids, torch.long), (counts, torch.float32), (offsets, torch.long), (sides, torch.float32), (targets, torch.float32)])
 
 
-def load_data(paths, validation_fraction, seed):
+def load_data(paths, validation_fraction, seed, spatial=False):
     samples = []
     sources = []
     for path in paths:
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        digest = sha256_file(path)
         sources.append({"path": str(path), "sha256": digest})
         with path.open() as f:
             for line in f:
@@ -44,7 +98,7 @@ def load_data(paths, validation_fraction, seed):
                     raise ValueError("this trainer currently trains freestyle positions only")
                 if len(s["board"]) != s["size"] ** 2 or set(s["board"]) - set("012"):
                     raise ValueError("invalid board encoding")
-                if s["outcome"] not in (None, 0, 0.5, 1) or not math.isfinite(s["score"]) or s["depth"] < 1:
+                if s["outcome"] not in (None, 0, 0.5, 1) or not math.isfinite(s["score"]) or (s["depth"] < 1 and not (s.get("vcf_depth", 0) > 0)):
                     raise ValueError("invalid training label")
                 if any(not 0 <= i < FEATURES or not 0 < n <= 65535 for i, n in s["features"]):
                     raise ValueError("invalid sparse feature")
@@ -53,6 +107,10 @@ def load_data(paths, validation_fraction, seed):
                 # The group identity must not depend on nondeterministic
                 # multithreaded JSONL write order (the provenance hash may).
                 s["group"] = (s["seed"], s["game"], s["size"], s["rule"])
+                if spatial:
+                    if "best_move" in s and (not isinstance(s["best_move"], int) or not 0 <= s["best_move"] < len(s["board"]) or s["board"][s["best_move"]] != '0'):
+                        raise ValueError("invalid policy label")
+                    s.pop("features")
                 samples.append(s)
     groups = sorted({s["group"] for s in samples})
     if len(groups) < 4:
@@ -108,12 +166,17 @@ class PackedPositions(torch.utils.data.Dataset):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--architecture", choices=("legacy", "spatial"), default="legacy")
+    p.add_argument("--policy-weight", type=float, default=0.5)
     p.add_argument("--data", type=Path, nargs="+", required=True)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--resume", type=Path)
     p.add_argument("--epochs", type=int, default=40)
+    p.add_argument("--checkpoint-epochs", type=int, nargs="*", default=[], help="export these epochs along the same optimizer/scheduler trajectory (legacy)")
     p.add_argument("--batch-size", type=int, default=None)
     p.add_argument("--lr", type=float, default=0.003)
+    p.add_argument("--init-scale", type=float, default=0.05, help="embedding/revival initialization std; unused for a plain resume")
+    p.add_argument("--revive-flat-units", action='store_true', help='reinitialize units flat on every training position; requires --resume')
     p.add_argument("--outcome-weight", type=float, default=0.30)
     p.add_argument("--validation-fraction", type=float, default=0.15)
     p.add_argument("--seed", type=int, default=1)
@@ -125,6 +188,15 @@ def main():
     p.add_argument("--precision", choices=("auto", "fp32", "bf16", "fp16"), default="auto")
     p.add_argument("--deterministic", action="store_true")
     args = p.parse_args()
+    if args.revive_flat_units and not args.resume:
+        p.error('--revive-flat-units requires --resume')
+    if any(e < 1 or e > args.epochs for e in args.checkpoint_epochs):
+        p.error("checkpoint epochs must lie within the training run")
+    if args.architecture == "spatial" and args.checkpoint_epochs:
+        p.error("checkpoint epochs currently require legacy architecture")
+    if args.architecture == "spatial":
+        from trainer.spatial_train import run
+        return run(args)
     device = torch.device(args.device)
     cuda = device.type == "cuda"
     dense = args.backend == "dense" or (cuda and args.backend == "auto")
@@ -174,7 +246,9 @@ def main():
             collate_fn=packed_train.collate, generator=torch.Generator().manual_seed(args.seed), **loader_options)
         validation_loader = torch.utils.data.DataLoader(packed_validation, shuffle=False,
             collate_fn=packed_validation.collate, **loader_options)
-    model = NNUE().to(device)
+    if not 0 < args.init_scale < float('inf'):
+        p.error('invalid initialization scale')
+    model = NNUE(init_scale=args.init_scale).to(device)
     if args.resume:
         model.load_state_dict(torch.load(args.resume, map_location=device, weights_only=True))
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.0001, fused=cuda)
@@ -182,7 +256,7 @@ def main():
     rng = random.Random(args.seed)
 
     amp_dtype = torch.bfloat16 if precision == "bf16" else torch.float16
-    scaler = torch.amp.GradScaler("cuda", enabled=cuda and precision == "fp16")
+    scaler = make_grad_scaler(cuda and precision == "fp16")
 
     def autocast():
         return torch.autocast("cuda", dtype=amp_dtype) if cuda and precision != "fp32" else nullcontext()
@@ -223,6 +297,22 @@ def main():
     if cuda:
         torch.cuda.reset_peak_memory_stats(device)
     initial_loss, _ = validate()
+    original_initial_loss = initial_loss
+    revived_units = []
+    if args.revive_flat_units:
+        def calibration():
+            if dense:
+                for start in range(0, len(packed_train), args.batch_size):
+                    items = packed_train.collate(range(start, min(start + args.batch_size, len(packed_train))))
+                    yield tuple(item.to(device) for item in items)
+            else:
+                yield from batches(True)
+        revived_units = revive_flat_units(model, calibration(), dense, args.seed, args.init_scale)
+        initial_loss, _ = validate()
+        print(json.dumps({'revived_units': revived_units, 'original_initial_validation_loss': original_initial_loss,
+                          'initial_validation_loss': initial_loss}), flush=True)
+    with torch.no_grad():
+        entropy = sum(target_entropy(b[-1]).item() for b in batches(False)) / validation_count
     best_loss = initial_loss
     best_state = copy.deepcopy(model.state_dict())
     best_epoch = 0
@@ -253,6 +343,7 @@ def main():
         val_loss, mae = validate()
         elapsed = time.perf_counter() - started
         row = {"epoch": epoch + 1, "train_loss": train_loss, "validation_loss": val_loss,
+               "validation_excess_bce": val_loss - entropy,
                "validation_probability_mae": mae, "epoch_seconds": elapsed,
                "positions_per_second": (train_count + validation_count) / elapsed}
         history.append(row)
@@ -261,14 +352,30 @@ def main():
             best_state = copy.deepcopy(model.state_dict())
         if epoch == 0 or (epoch + 1) % 5 == 0 or epoch + 1 == args.epochs:
             print(json.dumps(row), flush=True)
+        if epoch + 1 in args.checkpoint_epochs:
+            checkpoint = args.output.with_name(f"epoch-{epoch + 1:03d}.nnue")
+            model.export(checkpoint)
+            torch.save(model.state_dict(), checkpoint.with_suffix(".pt"))
         scheduler.step()
     model.load_state_dict(best_state)
+    with torch.no_grad():
+        clipped, activations = 0, 0
+        for b in batches(False):
+            accum = torch.cat(accumulators(model, b, dense), dim=1)
+            clipped += ((accum <= 0) | (accum >= 1)).sum().item()
+            activations += accum.numel()
+        diagnostics = {"validation_clipped_activation_fraction": clipped / activations,
+                       "head_absolute_sum": model.head.abs().sum().item()}
     model.export(args.output)
     torch.save(best_state, args.output.with_suffix(".pt"))
     report = {"schema": 1, "runtime": runtime, "external_data": False, "external_weights": False, "sources": sources,
               "seed": args.seed, "split_seed": args.split_seed, "train_positions": train_count, "validation_positions": validation_count,
               "games": games, "validation_games": val_games, "initial_validation_loss": initial_loss,
               "best_validation_loss": best_loss, "best_epoch": best_epoch, "outcome_weight": args.outcome_weight,
+              "validation_target_entropy": entropy, "best_validation_excess_bce": best_loss - entropy,
+              "learning_rate": args.lr, "epochs": args.epochs, "checkpoint_epochs": args.checkpoint_epochs,
+              "init_scale": args.init_scale, "network_diagnostics": diagnostics,
+              "revived_units": revived_units, "original_initial_validation_loss": original_initial_loss,
               "resume": str(args.resume) if args.resume else None, "history": history,
               "weights_sha256": hashlib.sha256(args.output.read_bytes()).hexdigest()}
     runtime["peak_cuda_memory_bytes"] = torch.cuda.max_memory_allocated(device) if cuda else 0
