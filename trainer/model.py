@@ -32,6 +32,10 @@ class NNUE(nn.Module):
         self.head = nn.Parameter(torch.randn(HIDDEN) * 0.05)
         self.tempo = nn.Parameter(torch.tensor(0.0))
         self.register_buffer("inverse", torch.from_numpy(INVERSE.copy()), persistent=False)
+        # Very frequent color-invariant windows otherwise introduce large
+        # shared offsets and clip both towers before training can learn.
+        with torch.no_grad():
+            self.embedding[self.inverse == torch.arange(FEATURES)] = 0
 
     def forward(self, ids, counts, offsets, sides):
         black = F.embedding_bag(ids, self.embedding, offsets, mode="sum", per_sample_weights=counts / NORMALIZER, include_last_offset=True)

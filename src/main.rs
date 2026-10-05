@@ -5,22 +5,21 @@ use std::sync::mpsc;
 
 fn main() {
     let mut engine = Engine::new();
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() > 1 {
-        if args.len() != 3 || args[1] != "--weights" {
-            eprintln!("Usage: nolos-nnue [--weights PATH]");
-            std::process::exit(2);
+    let mut configure = || -> Result<(), String> {
+        let args = nolos_nnue::experiment::arguments()?;
+        nolos_nnue::experiment::validate_keys(&args, &["weights", "precision"])?;
+        if let Some(precision) = args.get("precision") {
+            engine.set_precision(precision)?;
         }
-        match std::fs::read(&args[2])
-            .map_err(|e| e.to_string())
-            .and_then(|b| engine.load_network(&b))
-        {
-            Ok(()) => {}
-            Err(e) => {
-                eprintln!("Cannot load weights: {e}");
-                std::process::exit(2);
-            }
+        if let Some(path) = args.get("weights") {
+            let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+            engine.load_network(&bytes)?;
         }
+        Ok(())
+    };
+    if let Err(e) = configure() {
+        eprintln!("{e}\nUsage: nolos-nnue [--weights PATH] [--precision fp32|int16]");
+        std::process::exit(2);
     }
     let (tx, rx) = mpsc::sync_channel::<String>(1024);
     // Input thread never evaluates or emits protocol output. One search thread.

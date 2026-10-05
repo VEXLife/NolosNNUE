@@ -16,6 +16,155 @@ from trainer import bootstrap
 
 
 class TrainingTests(unittest.TestCase):
+    def test_dataset_clamping_preserves_raw_scores_and_raw_model_gradients(self):
+        from trainer.sampling import clamp_scores
+        from trainer.train import value_target
+        samples = [dict(score=s, outcome=None) for s in (-30000, -4000, 0, 400, 30000)]
+        kept = clamp_scores(samples, 1000)
+        self.assertEqual([s['score'] for s in kept], [-1000, -1000, 0, 400, 1000])
+        self.assertEqual([s['raw_score'] for s in kept], [s['score'] for s in samples])
+        self.assertEqual(clamp_scores(kept, 1000), kept)
+        self.assertEqual(samples[0]['score'], -30000)
+        prediction = torch.tensor([10.0], requires_grad=True)
+        target = value_target(kept[-1], 0, .025)
+        torch.nn.functional.binary_cross_entropy_with_logits(prediction, torch.tensor([target])).backward()
+        self.assertGreater(prediction.grad.item(), .1)
+
+    def test_resume_reads_worker_threads_from_environment(self):
+        from scripts import resume_hce
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'config.json').write_text(json.dumps({'run_dir': str(root), 'threads': 6}))
+            with patch.dict('os.environ', {'THREADS': '12'}), \
+                    patch.object(sys, 'argv', ['resume', '--run-dir', str(root)]), \
+                    patch.object(resume_hce.subprocess, 'run') as launch, \
+                    patch.object(resume_hce.os, 'chdir'):
+                resume_hce.main()
+            command = launch.call_args.args[0]
+            self.assertEqual(command[command.index('--worker-threads') + 1], '12')
+            self.assertEqual(command[command.index('--threads') + 1], '6')
+            self.assertEqual(json.loads((root / 'config.json').read_text())['threads'], 6)
+
+    def test_rejected_learner_continues_best_with_softening_and_early_stop(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            commands = []
+
+            def launch(command, **kwargs):
+                commands.append(command)
+                output = Path(command[command.index('--output') + 1])
+                if command[0].endswith('/arena'):
+                    output.write_text(json.dumps(dict(complete_pairs=32, truncated=0,
+                        score=.49, paired_mean=.49, paired_ci95=[.4, .58])))
+                else:
+                    output.write_bytes(b'NOLOS001candidate or data')
+                    if 'trainer.train' in command:
+                        output.with_suffix('.pt').write_bytes(b'validation best checkpoint')
+                        output.with_suffix('.training.json').write_text('{}')
+                return Mock(stdout=io.StringIO('complete\n'), wait=Mock(return_value=0))
+
+            args = ['bootstrap', '--run-dir', str(root / 'run'), '--generations', '2',
+                    '--pairs', '32', '--promotion-policy', 'score', '--train-resume', 'candidate',
+                    '--train-label-smoothing', '.025', '--train-early-stop-patience', '10']
+            with patch.object(bootstrap, 'ROOT', root), patch.object(bootstrap.subprocess, 'run'), \
+                    patch.object(bootstrap.subprocess, 'Popen', side_effect=launch), \
+                    patch.object(sys, 'argv', args), patch('sys.stdout', new_callable=io.StringIO):
+                bootstrap.main()
+            training = [c for c in commands if 'trainer.train' in c]
+            self.assertEqual(len(training), 2)
+            self.assertNotIn('--resume', training[0])
+            self.assertEqual(training[1][training[1].index('--resume') + 1],
+                             str(root / 'run/generation-000/candidate.pt'))
+            for command in training:
+                self.assertNotIn('--last-output', command)
+                self.assertEqual(command[command.index('--label-smoothing') + 1], '0.025')
+                self.assertEqual(command[command.index('--early-stop-patience') + 1], '10')
+            selfplay = [c for c in commands if c[0].endswith('/selfplay')]
+            self.assertTrue(all(c[c.index('--weights') + 1] == 'hce' for c in selfplay))
+
+    def test_hce_promotion_requires_node_and_time_confirmation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            commands = []
+
+            def launch(command, **kwargs):
+                commands.append(command)
+                output = Path(command[command.index('--output') + 1])
+                if command[0].endswith('/arena'):
+                    output.write_text(json.dumps(dict(complete_pairs=32, truncated=0,
+                        score=0.60, paired_mean=0.60, paired_ci95=[0.55, 0.65])))
+                elif 'scripts.check_threat_regression' in command:
+                    output.write_text(json.dumps({'results': [{'found_mate': False}]}))
+                else:
+                    output.write_bytes(b'NOLOS001candidate or data')
+                    if 'trainer.train' in command:
+                        output.with_suffix('.pt').write_bytes(b'checkpoint')
+                        output.with_suffix('.training.json').write_text('{}')
+                        last = Path(command[command.index('--last-output') + 1])
+                        last.write_bytes(b'NOLOS001last epoch')
+                        last.with_suffix('.pt').write_bytes(b'last checkpoint')
+                return Mock(stdout=io.StringIO('complete\n'), wait=Mock(return_value=0))
+
+            args = ['bootstrap', '--run-dir', str(root / 'run'), '--generations', '1',
+                    '--pairs', '32', '--confirm-pairs', '32', '--arena-time-ms', '10',
+                    '--continue-final', '--train-resume', 'candidate', '--tactical-regressions']
+            with patch.object(bootstrap, 'ROOT', root), patch.object(bootstrap.subprocess, 'run'), \
+                    patch.object(bootstrap.subprocess, 'Popen', side_effect=launch), \
+                    patch.object(sys, 'argv', args), patch('sys.stdout', new_callable=io.StringIO):
+                bootstrap.main()
+            arenas = [c for c in commands if c[0].endswith('/arena')]
+            self.assertEqual(len(arenas), 4)
+            timed = [c for c in arenas if '--time-ms' in c]
+            self.assertEqual(len(timed), 2)
+            self.assertTrue(all(c[c.index('--threads') + 1] == '1' for c in timed))
+            self.assertEqual(len({c[c.index('--seed') + 1] for c in arenas}), 4)
+            self.assertTrue(json.loads((root / 'run/summary.json').read_text())['generations'][0]['promoted'])
+            # Simulate the previous package's tactical-only rejection and migrate.
+            folder = root / 'run/generation-000'
+            report = json.loads((folder / 'manifest.json').read_text())
+            report['checks'] = report.pop('tactical_diagnostics')
+            report['promoted'] = False
+            (folder / 'manifest.json').write_text(json.dumps(report))
+            for marker in folder.glob('stage-*.json'):
+                if any(name in marker.name for name in ('arena', 'confirmation', 'time')):
+                    marker.unlink()
+            config_path = root / 'run/config.json'
+            config = json.loads(config_path.read_text())
+            config['source_sha256'] = {
+                'trainer/bootstrap.py': 'c7fc057c7ea4ba29352bbb50f5ce46eb4d1b3f5d34cdf4806f2c288fed4d9272',
+                'scripts/train_hce.sh': '5bade16e27c2beee76092d8e7e6f7b7b5207517217d9a7b3d343fe9a631d5837'}
+            config_path.write_text(json.dumps(config))
+            commands.clear()
+            resume_args = [a for a in args if a != '--tactical-regressions'] + ['--resume-run', '--migrate-tactical-gate', '--worker-threads', '12']
+            with patch.object(bootstrap, 'ROOT', root), patch.object(bootstrap.subprocess, 'run'), \
+                    patch.object(bootstrap.subprocess, 'Popen', side_effect=launch), \
+                    patch.object(sys, 'argv', resume_args), patch('sys.stdout', new_callable=io.StringIO):
+                bootstrap.main()
+            self.assertEqual(len(commands), 4)
+            self.assertTrue(all(c[0].endswith('/arena') for c in commands))
+            self.assertTrue(all(c[c.index('--threads') + 1] == '12' for c in commands if '--time-ms' not in c))
+            migrated = json.loads((folder / 'manifest.json').read_text())
+            self.assertTrue(migrated['promoted'])
+            self.assertEqual(migrated['tactical_diagnostics'], [])
+            self.assertTrue((folder / 'manifest.before-tactical-migration.json').exists())
+            # Accept the completed first arena without launching any remaining checks.
+            migrated['promoted'] = False
+            (folder / 'manifest.json').write_text(json.dumps(migrated))
+            commands.clear()
+            fast_args = [a for a in resume_args if a != '--migrate-tactical-gate'] + [
+                '--migrate-score-policy', '--accept-first-generation', '--promotion-policy', 'score',
+                '--pairs', '128', '--confirm-pairs', '0', '--arena-time-ms', '0']
+            with patch.object(bootstrap, 'ROOT', root), patch.object(bootstrap.subprocess, 'run'), \
+                    patch.object(bootstrap.subprocess, 'Popen', side_effect=launch), \
+                    patch.object(bootstrap, 'initial_model', return_value=(str(folder / 'candidate.nnue'), folder / 'candidate.pt')), \
+                    patch.object(sys, 'argv', fast_args), patch('sys.stdout', new_callable=io.StringIO):
+                bootstrap.main()
+            self.assertEqual(commands, [])
+            accepted = json.loads((folder / 'manifest.json').read_text())
+            self.assertTrue(accepted['first_generation_accepted'])
+            self.assertTrue(accepted['promoted'])
+            self.assertEqual(json.loads((root / 'run/summary.json').read_text())['champion'], str(folder / 'candidate.nnue'))
+
     def test_failed_confirmation_keeps_initial_teacher_and_stops_on_resume(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -107,6 +256,11 @@ class TrainingTests(unittest.TestCase):
         result = dict(complete_pairs=128, truncated=0, paired_mean=0.539, paired_ci95=[0.504, 0.574])
         self.assertEqual(promotion_check(result, 0.55), ['score below promotion threshold'])
         self.assertEqual(promotion_check(result, 0.50), [])
+        self.assertIn('requested opening pairs incomplete', promotion_check(result, 0.50, 512))
+        self.assertEqual(promotion_check(result, 0.50, 128), [])
+        noisy = result | dict(paired_mean=.52, score=.52, paired_ci95=[.48, .56])
+        self.assertEqual(promotion_check(noisy, .52, 128, 'score'), [])
+        self.assertTrue(promotion_check(noisy | dict(paired_mean=.519), .52, 128, 'score'))
         for changes in (dict(complete_pairs=31), dict(truncated=1), dict(paired_ci95=[0.49, 0.58])):
             self.assertTrue(promotion_check(result | changes, 0.50))
 
@@ -118,6 +272,15 @@ class TrainingTests(unittest.TestCase):
             {"features": [[5, 11], [73, 6]], "side": 2, "score": -300, "outcome": None},
             {"features": [[0, 4], [341, 8]], "side": 1, "score": 20, "outcome": 0.5},
         ]
+
+    def test_smoothed_targets_match_sparse_and_dense(self):
+        samples = [dict(self.samples[0], score=30000),
+                   dict(self.samples[1], score=-30000),
+                   dict(self.samples[2], score=0, outcome=None)]
+        sparse = batch(samples, 'cpu', 0, .025)
+        packed = PackedPositions(samples, 0, .025)
+        torch.testing.assert_close(sparse[-1], packed.collate([0, 1, 2])[-1])
+        torch.testing.assert_close(sparse[-1], torch.tensor([.975, .025, .5]))
 
     def test_packing_and_last_batch(self):
         packed = PackedPositions(self.samples, 0.3)
@@ -146,6 +309,17 @@ class TrainingTests(unittest.TestCase):
         actual.square().sum().backward()
         for first, second in zip(sparse_model.parameters(), dense_model.parameters()):
             torch.testing.assert_close(first.grad, second.grad, atol=1e-7, rtol=1e-5)
+
+    def test_initialization_does_not_saturate_with_color_invariant_offsets(self):
+        model = NNUE()
+        invariant = model.inverse == torch.arange(FEATURES)
+        self.assertEqual(model.embedding[invariant].abs().sum().item(), 0)
+        counts = torch.zeros(2, FEATURES)
+        counts[:, invariant] = 1000
+        black, white = __import__('trainer.train', fromlist=['accumulators']).accumulators(
+            model, (counts,), True)
+        torch.testing.assert_close(black, model.bias.expand_as(black))
+        torch.testing.assert_close(white, model.bias.expand_as(white))
 
     def test_cohort_split_stays_stable_across_generations_and_row_order(self):
         def cohort(seed):

@@ -5,9 +5,10 @@
 ## 当前状态
 
 - Rust原生与WASM共用引擎；入口 `src/protocol.rs`，搜索 `src/search.rs`，训练 `trainer/`，网页 `web/`。
-- 当前模型 `artifacts/cloud-gen9.nnue`，配套 `.pt` 用于微调。搜索最新版本地二进制 `target/counter-audit/release/`；默认qdepth=1、selective关闭。云端尚未更新源码。
-- 新搜索已通过三个用户杀棋案例、17/31手VCF及原生/WASM检查；整体棋力提升尚未证明。当前准备调整采样后试训，没有运行中的新训练任务。
-- `scripts/train_from_gen9.sh`仍是旧spatial流程，不应直接当作本轮试训入口。本轮入口为 `scripts/train_search_gen9.sh`；`package_gen9.py`已改为本轮legacy打包器。
+- 当前对战模型仍是 `artifacts/cloud-gen9.nnue`；新训练完全从HCE开始，入口 `scripts/train_hce.sh`，打包 `scripts/package_hce.py`，新包不含权重／旧数据。
+- 默认30代×4096盘，学习器从验证最佳检查点继续、10轮早停、2.5%标签软化、每步5万节点、杀棋收尾限采样、四代回放、每代128对竞技、52%得分晋升（不复核）；配置和续跑见 `docs/training.md`。
+- 搜索已修复PV节点LMR漏杀；默认qdepth=1、selective关闭。最近初始化对照未晋升，历史只需按需查 `docs/history.md`。
+- 旧spatial启动、refine、sweep、deep实验脚本已移除，原件保存在忽略的 `.agent/obsolete-training-20261003.tgz`。保留网络格式、检查工具和可用的微调入口。
 
 ## 工作约束
 
@@ -30,4 +31,4 @@ node scripts/check_wasm.mjs web/nolos_nnue.wasm artifacts/cloud-gen9.nnue
 ## 云端操作
 
 用户此前已授权使用agent-browser操作Chromium，CDP端口9222。具体页面／日志读取方法见忽略目录 `.agent/README.md`。
-启动命令必须先 `. "$HOME/.cargo/env"`；项目 `/gemini/code/gomoku-next`，输出 `/gemini/output`，通常THREADS=6。新任务先核实代码包、模型及挂载路径。
+项目 `/gemini/code/gomoku-next`，输出 `/gemini/output`，通常THREADS=6。新任务先核实代码包、模型及挂载路径。

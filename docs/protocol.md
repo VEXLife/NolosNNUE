@@ -40,6 +40,7 @@ Search uses its own board copy. Stopping commits only the chosen move to the pro
 | `thread_split_depth` | Ignored; no search task splitting |
 | `show_detail` | Positive values enable Yixin log statistics and `MESSAGE REALTIME` PV updates; 0 disables them |
 | `selective_search` | Experimental reductions, default off; change only while idle; clears TT |
+| `nnue_precision` | `fp32` (default) or experimental `int16`; change only while idle and outside BOARD input; rebuilds accumulators and clears TT. Retained across network loads and START/RESTART. `int16` supports NOLOS001 only; invalid/unsupported changes return ERROR and retain the evaluator |
 | Other INFO | Silently ignored; no automatic pondering |
 
 Analysis output is compatible with the local Yixin-Board: `INFO NUMPV 1`, `INFO PV 0`, `INFO DEPTH`, `INFO NODES`, `INFO EVAL`, `INFO WINRATE`, `INFO BESTLINE`, and `INFO PV DONE`. WINRATE maps evaluation through a sigmoid; it is not a probability calibrated against external competition. Winning scores use `+M`/`-M`, but selective search is not an exhaustive formal proof.
@@ -59,5 +60,7 @@ Analysis output is compatible with the local Yixin-Board: `INFO NUMPV 1`, `INFO 
 | `YXSHOWHASHUSAGE` | Report allocated transposition-table capacity |
 
 Stop searching before changing the evaluator. Invalid weights retain the previous network. Unsupported additional commands, including databases, `YXNBEST` multi-PV, Swap2/Soosõrv opening negotiation, and blocked paths, return `UNKNOWN`. Implementing the core original protocol does not imply support for all Rapfi private GUI extensions.
+
+Native startup accepts `--weights PATH --precision int16` to opt into quantized NOLOS001 inference; omitting `--precision` keeps FP32. `INFO nnue_precision fp32` restores FP32 while idle. Both modes use the same model file.
 
 The browser ABI exports `engine_init`, `engine_alloc`, `engine_free`, `engine_command`, `engine_tick`, and `engine_load_weights`. The host provides an output callback and monotonic clock. The Worker periodically yields so `YXSTOP` reaches the shared protocol state machine without shared memory.

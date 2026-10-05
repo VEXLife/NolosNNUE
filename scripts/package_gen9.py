@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import tarfile
+import zipfile
 from trainer.bootstrap import initial_model
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=ROOT / 'artifacts/gomoku-search-gen9.tgz')
+    parser.add_argument('--include-data', type=Path, help='include a labeled cohort located under the project root')
     args = parser.parse_args()
     initial_model(ROOT / 'artifacts/cloud-gen9.nnue')
     files = [ROOT / name for name in (
@@ -28,16 +30,29 @@ def main():
     files.extend(path for path in sorted((ROOT / 'web').glob('*')) if path.is_file())
     files.extend(sorted((ROOT / 'docs').glob('*.md')))
     files = sorted(set(files))
+    if args.include_data:
+        data = args.include_data.resolve()
+        data.relative_to(ROOT)
+        if not data.is_file():
+            parser.error('included data must be an existing file under the project root')
+        files = sorted(set(files + [data]))
     checksums = {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
                  for path in files}
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(args.output, 'w:gz') as archive:
-        for path in files:
-            archive.add(path, arcname='gomoku-next/' + str(path.relative_to(ROOT)))
-        payload = (json.dumps(checksums, indent=2) + '\n').encode()
-        info = tarfile.TarInfo('gomoku-next/upload-sha256.json')
-        info.size = len(payload)
-        archive.addfile(info, io.BytesIO(payload))
+    payload = (json.dumps(checksums, indent=2) + '\n').encode()
+    if args.output.suffix.lower() == '.zip':
+        with zipfile.ZipFile(args.output, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.mkdir('gomoku-next/')
+            for path in files:
+                archive.write(path, arcname='gomoku-next/' + str(path.relative_to(ROOT)))
+            archive.writestr('gomoku-next/upload-sha256.json', payload)
+    else:
+        with tarfile.open(args.output, 'w:gz') as archive:
+            for path in files:
+                archive.add(path, arcname='gomoku-next/' + str(path.relative_to(ROOT)))
+            info = tarfile.TarInfo('gomoku-next/upload-sha256.json')
+            info.size = len(payload)
+            archive.addfile(info, io.BytesIO(payload))
     checksum = hashlib.sha256(args.output.read_bytes()).hexdigest()
     args.output.with_suffix(args.output.suffix + '.sha256').write_text(f'{checksum}  {args.output.name}\n')
     print(args.output.resolve())

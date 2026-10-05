@@ -10,6 +10,7 @@ pub const MAGIC: &[u8; 8] = b"NOLOS001";
 /// No pretrained parameters are embedded in the engine.
 #[derive(Clone)]
 pub struct Network {
+    pub quantized: Option<Arc<crate::quantized::QuantizedNetwork>>,
     pub embedding: Vec<f32>,
     pub bias: [f32; HIDDEN],
     pub head: [f32; HIDDEN],
@@ -72,6 +73,7 @@ impl Network {
                 return Err("non-finite or out-of-range network parameters".into());
             }
             return Ok(Arc::new(Self {
+                quantized: None,
                 embedding: Vec::new(),
                 bias: [0.0; HIDDEN],
                 head: [0.0; HIDDEN],
@@ -106,12 +108,24 @@ impl Network {
         }
         let k = FEATURES * HIDDEN;
         Ok(Arc::new(Self {
+            quantized: None,
             embedding: values[..k].to_vec(),
             bias: values[k..k + HIDDEN].try_into().unwrap(),
             head: values[k + HIDDEN..k + 2 * HIDDEN].try_into().unwrap(),
             tempo: values[k + 2 * HIDDEN],
             spatial: None,
         }))
+    }
+
+    pub fn with_precision(self: &Arc<Self>, precision: &str) -> Result<Arc<Self>, String> {
+        let quantized = match precision {
+            "fp32" => None,
+            "int16" => Some(Arc::new(crate::quantized::QuantizedNetwork::new(self)?)),
+            _ => return Err("precision must be fp32 or int16".into()),
+        };
+        let mut net = (**self).clone();
+        net.quantized = quantized;
+        Ok(Arc::new(net))
     }
 
     pub fn value(&self, black: &[f32; HIDDEN], white: &[f32; HIDDEN], side: u8) -> i32 {
@@ -122,8 +136,23 @@ impl Network {
         if side == 2 {
             value = -value;
         }
-        ((value + self.tempo) * SCALE)
-            .round()
-            .clamp(-12000.0, 12000.0) as i32
+        ((value + self.tempo) * SCALE).round() as i32
+    }
+}
+
+#[cfg(test)]
+mod value_limit_tests {
+    use super::*;
+    #[test]
+    fn neural_values_expose_large_predictions_for_both_colors_and_tempo() {
+        let mut network = Network {
+            quantized: None,
+            embedding: vec![], bias: [0.0; HIDDEN], head: [10.0; HIDDEN],
+            tempo: 0.0, spatial: None,
+        };
+        assert_eq!(network.value(&[1.0; HIDDEN], &[0.0; HIDDEN], 1), 192000);
+        assert_eq!(network.value(&[1.0; HIDDEN], &[0.0; HIDDEN], 2), -192000);
+        network.tempo = -100.0;
+        assert_eq!(network.value(&[0.0; HIDDEN], &[0.0; HIDDEN], 1), -60000);
     }
 }

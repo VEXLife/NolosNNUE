@@ -14,6 +14,7 @@ struct Sample {
     nodes: u64,
     best_move: usize,
     vcf_depth: usize,
+    played_move: usize,
 }
 
 fn main() {
@@ -90,7 +91,7 @@ fn work() -> Result<(), String> {
                     let side = (board.history.len() % 2 + 1) as u8;
                     let result = player.choose(&board, side)?;
                     let mut p = result.best.unwrap();
-                    // Explore only non-tactical early positions; labels describe
+                    // Explore searched near-best alternatives in early positions; labels describe
                     // the searched position, while outcomes come from actual play.
                     let tactical = board.candidates().iter().any(|q| {
                         [side, 3 - side]
@@ -98,22 +99,16 @@ fn work() -> Result<(), String> {
                             .any(|c| board.would_win(*q, *c) && board.legal(*q, *c))
                     });
                     if !tactical
-                        && board.history.len() < 20
-                        && result.score.abs() < 1500
-                        && rng.uniform() < exploration
+                        && board.history.len() < 60
+                        && result.score.abs() < 29500
+                        && rng.uniform() < exploration * exploration_decay(board.history.len())
                     {
-                        let mut candidates = board.candidates();
-                        candidates.retain(|q| board.legal(*q, side));
-                        candidates.sort_by_key(|q| {
-                            -(board.move_score(*q, side) * 2 + board.move_score(*q, 3 - side))
-                        });
-                        if !candidates.is_empty() {
-                            p = candidates[rng.index(candidates.len().min(5))];
-                        }
+                        p = explore(&board, side, p, &player, &mut rng)?;
                     }
                     if result.depth > 0 || result.vcf_depth > 0 {
                         samples.push(Sample {
                             board: board.clone(),
+                            played_move: p,
                             side,
                             score: result.score,
                             depth: result.depth,
@@ -172,8 +167,8 @@ fn work() -> Result<(), String> {
                 .map(|(id, n)| format!("[{id},{n}]"))
                 .collect::<Vec<_>>()
                 .join(",");
-            writeln!(writer, "{{\"game\":{game},\"seed\":{seed},\"size\":{size},\"rule\":{},\"side\":{},\"board\":\"{board}\",\"score\":{},\"outcome\":{outcome},\"depth\":{},\"nodes\":{},\"best_move\":{},\"vcf_depth\":{},\"features\":[{features}]}}",
-                rule.id(), sample.side, sample.score, sample.depth, sample.nodes, sample.best_move, sample.vcf_depth).map_err(|e| e.to_string())?;
+            writeln!(writer, "{{\"game\":{game},\"seed\":{seed},\"size\":{size},\"rule\":{},\"side\":{},\"board\":\"{board}\",\"score\":{},\"outcome\":{outcome},\"depth\":{},\"nodes\":{},\"best_move\":{},\"vcf_depth\":{},\"played_move\":{},\"features\":[{features}]}}",
+                rule.id(), sample.side, sample.score, sample.depth, sample.nodes, sample.best_move, sample.vcf_depth, sample.played_move).map_err(|e| e.to_string())?;
             positions += 1;
         }
         if finished % 16 == 0 || finished == games {
@@ -201,4 +196,111 @@ fn work() -> Result<(), String> {
     }
     eprintln!("saved {path}: {positions} positions, teacher={teacher}, external_data=false");
     Ok(())
+}
+
+// All alternatives and the original best move get the same child-search budget.
+// Separate tables avoid an advantage from the main search's cached bounds.
+fn explore(board: &Board, side: u8, best: usize, player: &Player, rng: &mut Rng) -> Result<usize, String> {
+    let mut position = board.clone();
+    position.set_network(player.network.clone());
+    let mut legal = position.candidates();
+    legal.retain(|&p| p != best && position.legal(p, side));
+    // Shuffle before sorting so clamped equal values do not prefer board order.
+    for i in (1..legal.len()).rev() { legal.swap(i, rng.index(i + 1)); }
+    let mut ranked = Vec::new();
+    for p in legal {
+        let mut child = position.clone();
+        child.make(p, side);
+        ranked.push((p, -child.evaluate(3 - side)));
+    }
+    ranked.sort_by_key(|(_, score)| -score);
+    let mut candidates: Vec<usize> = ranked.iter().take(2).map(|(p, _)| *p).collect();
+    let mut remaining: Vec<usize> = ranked.iter().skip(2).map(|(p, _)| *p).collect();
+    for _ in 0..4 {
+        if remaining.is_empty() { break; }
+        let index = rng.index(remaining.len());
+        candidates.push(remaining.swap_remove(index));
+    }
+    candidates.insert(0, best);
+    if candidates.len() < 2 || player.limits.nodes < candidates.len() as u64 {
+        return Ok(best);
+    }
+    let mut limits = player.limits.clone();
+    limits.nodes /= candidates.len() as u64;
+    limits.depth = limits.depth.saturating_sub(1).max(1);
+    let mut probe = Player::new(player.network.clone(), limits);
+    let mut scored = Vec::new();
+    for p in candidates {
+        let mut child = board.clone();
+        child.make(p, side);
+        probe.reset();
+        let result = probe.choose(&child, 3 - side)?;
+        if result.depth == 0 && result.vcf_depth == 0 {
+            continue; // Discard only this candidate when its search did not complete.
+        }
+        let score = -result.score;
+        scored.push((p, score));
+    }
+    Ok(sample_exploration(&scored, rng).unwrap_or(best))
+}
+
+fn exploration_decay(plies: usize) -> f64 {
+    if plies < 20 { 1.0 } else { (60usize.saturating_sub(plies)) as f64 / 40.0 }
+}
+
+// Proven losses are never sampled. A proven win takes priority over exploration.
+// Otherwise mix a broad softmax with 15% uniform sampling to give alternatives
+// a chance even when the teacher strongly prefers its familiar moves.
+fn sample_exploration(scored: &[(usize, i32)], rng: &mut Rng) -> Option<usize> {
+    if let Some(&(p, _)) = scored.iter().filter(|(_, s)| *s >= 29500).max_by_key(|(_, s)| *s) {
+        return Some(p);
+    }
+    let safe: Vec<_> = scored.iter().copied().filter(|(_, s)| *s > -29500).collect();
+    let top = safe.iter().map(|(_, score)| *score).max()?;
+    let soft: Vec<f64> = safe.iter().map(|(_, score)| {
+        ((*score as f64 - top as f64) / 200.0).exp()
+    }).collect();
+    let total = soft.iter().sum::<f64>();
+    let uniform = 0.15 / safe.len() as f64;
+    let mut draw = rng.uniform();
+    for ((p, _), weight) in safe.iter().zip(&soft) {
+        draw -= 0.85 * weight / total + uniform;
+        if draw < 0.0 { return Some(*p); }
+    }
+    safe.last().map(|(p, _)| *p)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exploration_reaches_alternatives_and_discards_only_proven_losses() {
+        let mut rng = Rng(7);
+        let mut counts = [0; 4];
+        for _ in 0..10000 {
+            let p = sample_exploration(&[(0, 1000), (1, 800), (2, -2000), (3, -29998)], &mut rng).unwrap();
+            counts[p] += 1;
+        }
+        assert_eq!(counts[3], 0);
+        assert!(counts[0] > counts[1]);
+        assert!(counts[1] > 1500);
+        assert!(counts[2] > 300);
+        assert_eq!(sample_exploration(&[(1, -29998)], &mut rng), None);
+        assert_eq!(sample_exploration(&[], &mut rng), None);
+        assert_eq!(sample_exploration(&[(1, 29997), (2, 800), (3, -29998)], &mut rng), Some(1));
+        assert_eq!(exploration_decay(19), 1.0);
+        assert_eq!(exploration_decay(40), 0.5);
+        assert_eq!(exploration_decay(60), 0.0);
+    }
+
+    #[test]
+    fn exploration_is_invariant_to_score_offset() {
+        let mut a = Rng(42);
+        let mut b = Rng(42);
+        for _ in 0..1000 {
+            assert_eq!(sample_exploration(&[(1, 200), (2, 0)], &mut a),
+                       sample_exploration(&[(1, 1200), (2, 1000)], &mut b));
+        }
+    }
 }

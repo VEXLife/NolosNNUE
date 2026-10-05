@@ -360,6 +360,7 @@ fn limits() -> Limits {
 #[test]
 fn incremental_features_hash_and_network_match_full_recomputation() {
     let net = Arc::new(Network {
+        quantized: None,
         spatial: None,
         embedding: (0..FEATURES * HIDDEN)
             .map(|i| ((i * 37 % 101) as f32 - 50.0) * 0.0003)
@@ -719,6 +720,7 @@ fn spatial_incremental_value_and_policy_match_full_rebuild() {
         .map(|i| ((nolos_nnue::board::mix64(i as u64 + 17) % 10000) as f32 / 10000.0 - 0.5) * 0.3)
         .collect();
     let net = std::sync::Arc::new(Network {
+        quantized: None,
         embedding: vec![],
         bias: [0.0; HIDDEN],
         head: [0.0; HIDDEN],
@@ -762,4 +764,43 @@ fn spatial_incremental_value_and_policy_match_full_rebuild() {
         rebuilt.rebuild_accumulators();
         assert!((board.evaluate(1) - rebuilt.evaluate(1)).abs() <= 1);
     }
+}
+
+#[test]
+fn precision_switch_rebuilds_and_rejects_busy_changes() {
+    use nolos_nnue::network::{MAGIC, NORMALIZER, SCALE};
+    let payload = vec![0; (FEATURES * HIDDEN + HIDDEN * 2 + 1) * 4];
+    let checksum = payload.iter().fold(2166136261u32, |h, b| (h ^ *b as u32).wrapping_mul(16777619));
+    let mut bytes = Vec::from(*MAGIC);
+    bytes.extend_from_slice(&(FEATURES as u32).to_le_bytes());
+    bytes.extend_from_slice(&(HIDDEN as u32).to_le_bytes());
+    bytes.extend_from_slice(&NORMALIZER.to_le_bytes());
+    bytes.extend_from_slice(&SCALE.to_le_bytes());
+    bytes.extend_from_slice(&checksum.to_le_bytes());
+    bytes.extend(payload);
+    let mut e = Engine::new();
+    assert!(e.command("INFO nnue_precision int16", 0.0).is_empty());
+    e.load_network(&bytes).unwrap();
+    assert!(e.board.network.as_ref().unwrap().quantized.is_some());
+    e.command("PLAY 7,7", 0.0);
+    let history = e.board.history.clone();
+    e.command("INFO nnue_precision fp32", 0.0);
+    assert!(e.board.network.as_ref().unwrap().quantized.is_none());
+    assert_eq!(e.board.history, history);
+    assert!(e.command("INFO nnue_precision invalid", 0.0)[0].starts_with("ERROR "));
+    assert!(e.board.network.as_ref().unwrap().quantized.is_none());
+    e.command("YXBOARD", 0.0);
+    assert!(e.set_precision("int16").is_err());
+    e.command("DONE", 0.0);
+    e.command("INFO max_node 100000", 0.0);
+    e.command("YXSUGGEST", 0.0);
+    assert!(e.busy());
+    assert!(e.command("INFO nnue_precision int16", 0.0)[0].starts_with("ERROR "));
+    assert!(e.board.network.as_ref().unwrap().quantized.is_none());
+    e.command("YXSTOP", 0.0);
+    assert!(e.command("INFO nnue_precision int16", 0.0).is_empty());
+    assert!(e.board.network.as_ref().unwrap().quantized.is_some());
+    e.unload_network().unwrap();
+    e.load_network(&bytes).unwrap();
+    assert!(e.board.network.as_ref().unwrap().quantized.is_some());
 }

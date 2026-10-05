@@ -39,7 +39,19 @@ if(process.argv[3]) {
   assert.equal(bytes(weights,(p,n)=>wasm.engine_load_weights(p,n)),1); assert.deepEqual(take(),[]);
   weights[weights.length-1]^=1;
   assert.equal(bytes(weights,(p,n)=>wasm.engine_load_weights(p,n)),0); assert(take()[0].includes('checksum'));
-  command('YXEVAL'); assert(take()[0].startsWith('MESSAGE EVAL '));
+  command('YXEVAL'); const fp32Eval = take()[0]; assert(fp32Eval.startsWith('MESSAGE EVAL '));
+  command('INFO nnue_precision int16');
+  if (weights.subarray(0,8).toString() === 'NOLOS001') {
+    assert.deepEqual(take(), []);
+    command('YXSHOWINFO'); assert(take().some(s=>s.includes('NNUE int16')));
+    command('YXEVAL'); assert(/^MESSAGE EVAL -?\d+$/.test(take()[0]));
+    for(const s of ['INFO max_depth 2','INFO max_node 512','YXSUGGEST']) command(s);
+    drain(); assert(take().some(s=>s.startsWith('SUGGEST ')));
+    command('INFO nnue_precision fp32'); assert.deepEqual(take(), []);
+    command('YXEVAL'); assert.equal(take()[0], fp32Eval);
+  } else {
+    assert(take()[0].startsWith('ERROR '));
+  }
 }
 command('END'); command('ABOUT'); assert.deepEqual(take(), []);
 console.log('WASM ABI, Yixin state, suggestion, interruption, forbidden moves and weights: PASS');

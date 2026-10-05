@@ -57,6 +57,10 @@ function setBusy(value) { busy=value; $('stop').disabled=!busy; $('engine-status
 function humanTurn() { return $('mode').value==='analysis'||state.next===($('mode').value==='black'?1:2); }
 function search(suggest=false) { if(busy||pendingRecord||state.winner||state.history.length>=state.size**2)return; best=null; resetLive(); started=performance.now(); searchKind=suggest?'suggest':'move'; setBusy(true); send([...settings(),...sync(state.history,state.next,!suggest),...(suggest?['YXSUGGEST']:[])]); }
 function newGame() { notice(); searchKind=null; setBusy(false); best=null; resetLive(); forbids.clear(); $('record').value=''; $('record').classList.remove('dirty'); pendingAuto=true; send([`START ${$('size').value}`,`INFO rule ${$('rule').value}`,'YXSTATUS',...(Number($('rule').value)===2?['YXSHOWFORBID']:[])]); }
+// 切换模式（我执黑／我执白／自由摆棋）只改变由谁落子：棋盘和棋谱保持不动，不重开对局。
+// YXBOARD 会用同一份历史完整重建引擎棋盘，因此这里只是原样重申当前局面。
+// 之后若轮到引擎（例如轮到黑棋时切到“我执白”），就让它补上这一手；自由摆棋永远由人落子，不会触发应手。
+function changeMode() { notice(); best=null; resetLive(); forbids.clear(); searchKind=null; if(busy)send('YXSTOP'); pendingAuto=true; send([...sync(state.history,state.next),'YXSTATUS',...(Number($('rule').value)===2?['YXSHOWFORBID']:[])]); }
 function render() {
  const n=state.size, width=canvas.clientWidth||600, dpr=window.devicePixelRatio||1;canvas.width=width*dpr;canvas.height=width*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);
  const pad=width*.065, step=(width-2*pad)/(n-1);ctx.fillStyle='#cfb98c';ctx.fillRect(0,0,width,width);ctx.strokeStyle='#796c50';ctx.lineWidth=.8;
@@ -97,7 +101,7 @@ worker.onmessage=({data})=>{
    const [x,y]=(pv[0]||'').split(',').map(Number);live.p=Number.isFinite(x)&&Number.isFinite(y)?y*state.size+x:null;render();}
   $('elapsed').textContent=`${((performance.now()-started)/1000).toFixed(1)} s`;}
 };
-$('new-game').onclick=newGame;for(const id of ['mode','rule','size'])$(id).onchange=()=>{if(busy)send('YXSTOP');newGame();};
+$('new-game').onclick=newGame;for(const id of ['rule','size'])$(id).onchange=()=>{if(busy)send('YXSTOP');newGame();};$('mode').onchange=changeMode;
 $('stop').onclick=()=>send('YXSTOP');$('analyze').onclick=()=>search(true);$('play-best').onclick=()=>{if(best)play(...best);};
 $('undo').onclick=()=>{if(pendingRecord||!state.history.length)return;best=null;const count=$('mode').value==='analysis'?1:humanTurn()&&state.history.length>1?2:1;const history=state.history.slice(0,-count);send([...sync(history,history.length%2+1),'YXSTATUS',...(state.rule===2?['YXSHOWFORBID']:[])]);};
 // 棋谱：填写的文本按当前视图坐标系解析，合法即交给引擎做权威校验后应用；轮到引擎就照常应手。

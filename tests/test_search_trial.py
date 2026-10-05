@@ -1,6 +1,6 @@
 """Data thinning must not discard discoveries or leak games across the split."""
 import unittest
-from scripts.search_gen9 import thin_samples, board_rows
+from trainer.sampling import thin_samples, board_rows
 
 
 class SamplingTests(unittest.TestCase):

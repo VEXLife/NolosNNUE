@@ -13,7 +13,18 @@ fn main() {
 
 fn work() -> Result<(), String> {
     let args = arguments()?;
-    validate_keys(&args, &["input", "weights", "nodes", "repeats", "qdepth"])?;
+    validate_keys(
+        &args,
+        &[
+            "input",
+            "weights",
+            "nodes",
+            "repeats",
+            "qdepth",
+            "precision",
+            "time-ms",
+        ],
+    )?;
     let input = args.get("input").ok_or("--input required")?;
     let nodes = number(&args, "nodes", 50_000u64)?;
     let repeats = number(&args, "repeats", 3usize)?;
@@ -22,6 +33,16 @@ fn work() -> Result<(), String> {
         return Err("positive nodes/repeats required".into());
     }
     let network = weights(args.get("weights").map(String::as_str).unwrap_or("hce"))?;
+    let precision = args.get("precision").map(String::as_str).unwrap_or("fp32");
+    let network = match network {
+        Some(net) => Some(net.with_precision(precision)?),
+        None if precision == "fp32" => None,
+        None => return Err("int16 requires weights".into()),
+    };
+    let time_ms = number(&args, "time-ms", 1e12f64)?;
+    if !time_ms.is_finite() || time_ms <= 0.0 {
+        return Err("positive finite time required".into());
+    }
     for (position, line) in std::fs::read_to_string(input)
         .map_err(|e| e.to_string())?
         .lines()
@@ -62,7 +83,7 @@ fn work() -> Result<(), String> {
                 Limits {
                     depth: 64,
                     nodes,
-                    time_ms: 1e12,
+                    time_ms,
                     branch: 16,
                     qdepth,
                 },

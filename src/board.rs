@@ -62,6 +62,7 @@ pub struct Board {
     pub hce: i32,
     pub network: Option<Arc<Network>>,
     spatial_state: Option<crate::spatial::SpatialState>,
+    quantized_state: Option<Box<crate::quantized::State>>,
     pub black_acc: [f32; HIDDEN],
     pub white_acc: [f32; HIDDEN],
 }
@@ -246,6 +247,7 @@ impl Board {
             win_cache_enabled: true,
             hce: 0,
             network: None,
+            quantized_state: None,
             spatial_state: None,
             black_acc: [0.0; HIDDEN],
             white_acc: [0.0; HIDDEN],
@@ -264,9 +266,14 @@ impl Board {
             .as_ref()
             .and_then(|net| net.spatial.as_ref())
             .map(|net| crate::spatial::SpatialState::new(&self.cells, self.size, net));
+        self.quantized_state = self.network.as_ref()
+            .and_then(|net| net.quantized.as_ref())
+            .map(|net| Box::new(crate::quantized::State::new(
+                net, &self.counts, &self.geometry.inverse,
+            )));
         self.black_acc = [0.0; HIDDEN];
         self.white_acc = [0.0; HIDDEN];
-        if let Some(net) = self.network.as_ref().filter(|net| net.spatial.is_none()) {
+        if let Some(net) = self.network.as_ref().filter(|net| net.spatial.is_none() && net.quantized.is_none()) {
             self.black_acc = net.bias;
             self.white_acc = net.bias;
             for (id, n) in self.counts.iter().enumerate().filter(|(_, n)| **n > 0) {
@@ -327,16 +334,29 @@ impl Board {
             self.counts[old_feature] -= 1;
             self.counts[new_feature] += 1;
             self.hce += self.geometry.scores[new] - self.geometry.scores[old];
-            if let Some(net) = self.network.as_ref().filter(|net| net.spatial.is_none()) {
+            if let Some(net) = self.network.as_ref().filter(|net| net.spatial.is_none() && net.quantized.is_none()) {
                 let (old_inv, new_inv) = (self.geometry.inverse[old], self.geometry.inverse[new]);
-                for h in 0..HIDDEN {
-                    self.black_acc[h] += (net.embedding[new_feature * HIDDEN + h]
-                        - net.embedding[old_feature * HIDDEN + h])
-                        / NORMALIZER;
-                    self.white_acc[h] += (net.embedding[new_inv * HIDDEN + h]
-                        - net.embedding[old_inv * HIDDEN + h])
-                        / NORMALIZER;
-                }
+                crate::simd::update(
+                    &mut self.black_acc,
+                    &net.embedding[new_feature * HIDDEN..],
+                    &net.embedding[old_feature * HIDDEN..],
+                    1.0 / NORMALIZER,
+                );
+                crate::simd::update(
+                    &mut self.white_acc,
+                    &net.embedding[new_inv * HIDDEN..],
+                    &net.embedding[old_inv * HIDDEN..],
+                    1.0 / NORMALIZER,
+                );
+            }
+            if let (Some(state), Some(net)) = (
+                &mut self.quantized_state,
+                self.network.as_ref().and_then(|net| net.quantized.as_ref()),
+            ) {
+                let (old_inv, new_inv) = (self.geometry.inverse[old], self.geometry.inverse[new]);
+                crate::quantized::update_pair(
+                    state, net, new_feature, old_feature, new_inv, old_inv,
+                );
             }
             self.patterns[w] = new;
         }
@@ -366,7 +386,9 @@ impl Board {
 
     pub fn evaluate(&self, side: u8) -> i32 {
         if let Some(net) = &self.network {
-            if let (Some(state), Some(spatial)) = (&self.spatial_state, &net.spatial) {
+            if let Some(state) = &self.quantized_state {
+                state.value(net, side)
+            } else if let (Some(state), Some(spatial)) = (&self.spatial_state, &net.spatial) {
                 state.value(side, spatial)
             } else {
                 net.value(&self.black_acc, &self.white_acc, side)

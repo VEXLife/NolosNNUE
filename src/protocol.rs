@@ -25,6 +25,7 @@ pub struct Engine {
     commit_search: bool,
     show_detail: bool,
     selective_search: bool,
+    int16_precision: bool,
 }
 
 impl Default for Engine {
@@ -51,6 +52,7 @@ impl Engine {
             commit_search: true,
             show_detail: false,
             selective_search: false,
+            int16_precision: false,
         }
     }
 
@@ -59,9 +61,36 @@ impl Engine {
             return Err("finish or stop the current operation before loading weights".into());
         }
         let net = Network::load(bytes)?;
+        let net = if self.int16_precision {
+            net.with_precision("int16")?
+        } else {
+            net
+        };
         self.network = Some(net.clone());
         self.board.set_network(Some(net));
         self.table.as_mut().unwrap().clear();
+        Ok(())
+    }
+
+    pub fn set_precision(&mut self, precision: &str) -> Result<(), String> {
+        if self.search.is_some() || self.input.is_some() {
+            return Err("finish or stop the current operation before changing precision".into());
+        }
+        let enabled = match precision {
+            "fp32" => false,
+            "int16" => true,
+            _ => return Err("precision must be fp32 or int16".into()),
+        };
+        if enabled == self.int16_precision {
+            return Ok(());
+        }
+        if let Some(net) = &self.network {
+            let net = net.with_precision(precision)?;
+            self.network = Some(net.clone());
+            self.board.set_network(Some(net));
+        }
+        self.int16_precision = enabled;
+        self.clear_hash();
         Ok(())
     }
 
@@ -207,6 +236,13 @@ impl Engine {
                 }
             }
             "INFO" => {
+                let (key, value) = arg.split_once(char::is_whitespace).unwrap_or((arg, ""));
+                if key.eq_ignore_ascii_case("nnue_precision") {
+                    return match self.set_precision(&value.trim().to_ascii_lowercase()) {
+                        Ok(()) => Vec::new(),
+                        Err(e) => Self::error(e),
+                    };
+                }
                 self.info(arg);
                 Vec::new()
             }
@@ -297,7 +333,7 @@ impl Engine {
                 format!(
                     "MESSAGE NolosNNUE {} | evaluator: {} | search: alpha-beta | threads: 1 | max hash: 64 MB",
                     env!("CARGO_PKG_VERSION"),
-                    if self.network.is_some() { "NNUE" } else { "HCE" }
+                    if self.network.is_none() { "HCE" } else if self.int16_precision { "NNUE int16" } else { "NNUE" }
                 ),
             ],
             "YXSHOWHASHUSAGE" => {

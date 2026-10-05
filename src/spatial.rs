@@ -189,7 +189,7 @@ impl SpatialState {
             }
             value += hidden.max(0.0) * net.value_out[h];
         }
-        (value * 600.0).round().clamp(-12000.0, 12000.0) as i32
+        (value * 600.0).round() as i32
     }
 
     pub fn policy(&self, p: usize, side: u8, net: &SpatialNetwork) -> f32 {

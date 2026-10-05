@@ -70,7 +70,14 @@ def revive_flat_units(model, items, dense, seed, init_scale):
     return units.cpu().tolist()
 
 
-def batch(samples, device, outcome_weight):
+def value_target(sample, outcome_weight, smoothing=0.0):
+    search = 1 / (1 + math.exp(-max(-30, min(30, sample["score"] / 600))))
+    outcome = sample["outcome"]
+    target = search if outcome is None else (1 - outcome_weight) * search + outcome_weight * outcome
+    return (1 - 2 * smoothing) * target + smoothing
+
+
+def batch(samples, device, outcome_weight, smoothing=0.0):
     ids, counts, offsets, sides, targets = [], [], [0], [], []
     for s in samples:
         for feature, count in s["features"]:
@@ -78,9 +85,7 @@ def batch(samples, device, outcome_weight):
             counts.append(count)
         offsets.append(len(ids))
         sides.append(1.0 if s["side"] == 1 else -1.0)
-        search_target = 1.0 / (1.0 + math.exp(-max(-30.0, min(30.0, s["score"] / 600.0))))
-        outcome = s["outcome"]
-        targets.append(search_target if outcome is None else (1.0 - outcome_weight) * search_target + outcome_weight * outcome)
+        targets.append(value_target(s, outcome_weight, smoothing))
     return tuple(torch.tensor(v, dtype=dtype, device=device) for v, dtype in [
         (ids, torch.long), (counts, torch.float32), (offsets, torch.long), (sides, torch.float32), (targets, torch.float32)])
 
@@ -133,7 +138,7 @@ def load_data(paths, validation_fraction, seed, spatial=False):
 
 class PackedPositions(torch.utils.data.Dataset):
     """Compact host representation; dense batches are constructed in workers."""
-    def __init__(self, samples, outcome_weight):
+    def __init__(self, samples, outcome_weight, smoothing=0.0):
         width = max(len(s["features"]) for s in samples)
         self.ids = np.full((len(samples), width), FEATURES, dtype=np.uint16)
         self.counts = np.zeros((len(samples), width), dtype=np.uint16)
@@ -147,8 +152,7 @@ class PackedPositions(torch.utils.data.Dataset):
                 self.ids[row, column] = feature
                 self.counts[row, column] = count
             self.sides[row] = 1 if sample["side"] == 1 else -1
-            target = 1 / (1 + math.exp(-max(-30, min(30, sample["score"] / 600))))
-            self.targets[row] = target if sample["outcome"] is None else (1 - outcome_weight) * target + outcome_weight * sample["outcome"]
+            self.targets[row] = value_target(sample, outcome_weight, smoothing)
 
     def __len__(self):
         return len(self.sides)
@@ -171,6 +175,10 @@ def main():
     p.add_argument("--data", type=Path, nargs="+", required=True)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--resume", type=Path)
+    p.add_argument("--last-output", type=Path, help="save final epoch separately for continuing a rejected learner (legacy)")
+    p.add_argument("--label-smoothing", type=float, default=0.0, help="soften targets toward 0.5; 0 preserves old targets")
+    p.add_argument("--early-stop-patience", type=int, default=0, help="stop after this many epochs without validation improvement; 0 disables")
+    p.add_argument("--early-stop-min-delta", type=float, default=0.0001)
     p.add_argument("--epochs", type=int, default=40)
     p.add_argument("--checkpoint-epochs", type=int, nargs="*", default=[], help="export these epochs along the same optimizer/scheduler trajectory (legacy)")
     p.add_argument("--batch-size", type=int, default=None)
@@ -188,12 +196,18 @@ def main():
     p.add_argument("--precision", choices=("auto", "fp32", "bf16", "fp16"), default="auto")
     p.add_argument("--deterministic", action="store_true")
     args = p.parse_args()
+    if not 0 <= args.label_smoothing < 0.5 or args.early_stop_patience < 0 or not 0 <= args.early_stop_min_delta < float("inf"):
+        p.error("invalid smoothing or early stopping configuration")
+    if args.architecture != "legacy" and (args.label_smoothing or args.early_stop_patience):
+        p.error("smoothing and early stopping currently require legacy architecture")
     if args.revive_flat_units and not args.resume:
         p.error('--revive-flat-units requires --resume')
     if any(e < 1 or e > args.epochs for e in args.checkpoint_epochs):
         p.error("checkpoint epochs must lie within the training run")
     if args.architecture == "spatial" and args.checkpoint_epochs:
         p.error("checkpoint epochs currently require legacy architecture")
+    if args.last_output and (args.architecture != 'legacy' or args.last_output.resolve() == args.output.resolve()):
+        p.error('--last-output requires legacy and a path distinct from --output')
     if args.architecture == "spatial":
         from trainer.spatial_train import run
         return run(args)
@@ -235,8 +249,8 @@ def main():
     workers = args.workers if dense else 0
     train_loader = validation_loader = None
     if dense:
-        packed_train = PackedPositions(train, args.outcome_weight)
-        packed_validation = PackedPositions(validation, args.outcome_weight)
+        packed_train = PackedPositions(train, args.outcome_weight, args.label_smoothing)
+        packed_validation = PackedPositions(validation, args.outcome_weight, args.label_smoothing)
         del train, validation
         loader_options = {"batch_size": args.batch_size, "num_workers": workers,
                           "pin_memory": cuda, "persistent_workers": workers > 0}
@@ -268,7 +282,7 @@ def main():
         else:
             samples = train if training else validation
             for start in range(0, len(samples), args.batch_size):
-                yield batch(samples[start:start + args.batch_size], device, args.outcome_weight)
+                yield batch(samples[start:start + args.batch_size], device, args.outcome_weight, args.label_smoothing)
 
     def predict(items):
         return model.forward_dense(*items[:2]) if dense else model(*items[:4])
@@ -317,6 +331,8 @@ def main():
     best_state = copy.deepcopy(model.state_dict())
     best_epoch = 0
     history = []
+    stopping_reference = initial_loss
+    stale_epochs = 0
     print(json.dumps({"train_positions": train_count, "validation_positions": validation_count, "games": games, "validation_games": val_games, "initial_validation_loss": initial_loss, "runtime": runtime}), flush=True)
     for epoch in range(args.epochs):
         started = time.perf_counter()
@@ -357,6 +373,17 @@ def main():
             model.export(checkpoint)
             torch.save(model.state_dict(), checkpoint.with_suffix(".pt"))
         scheduler.step()
+        if val_loss < stopping_reference - args.early_stop_min_delta:
+            stopping_reference = val_loss
+            stale_epochs = 0
+        else:
+            stale_epochs += 1
+        if args.early_stop_patience and stale_epochs >= args.early_stop_patience:
+            print(json.dumps({"early_stopped": True, "epochs_completed": epoch + 1, "best_epoch": best_epoch}), flush=True)
+            break
+    if args.last_output:
+        model.export(args.last_output)
+        torch.save(model.state_dict(), args.last_output.with_suffix('.pt'))
     model.load_state_dict(best_state)
     with torch.no_grad():
         clipped, activations = 0, 0
@@ -373,10 +400,13 @@ def main():
               "games": games, "validation_games": val_games, "initial_validation_loss": initial_loss,
               "best_validation_loss": best_loss, "best_epoch": best_epoch, "outcome_weight": args.outcome_weight,
               "validation_target_entropy": entropy, "best_validation_excess_bce": best_loss - entropy,
-              "learning_rate": args.lr, "epochs": args.epochs, "checkpoint_epochs": args.checkpoint_epochs,
+              "learning_rate": args.lr, "epochs": args.epochs, "epochs_completed": len(history),
+              "label_smoothing": args.label_smoothing, "early_stop_patience": args.early_stop_patience,
+              "early_stop_min_delta": args.early_stop_min_delta, "early_stopped": len(history) < args.epochs, "checkpoint_epochs": args.checkpoint_epochs,
               "init_scale": args.init_scale, "network_diagnostics": diagnostics,
               "revived_units": revived_units, "original_initial_validation_loss": original_initial_loss,
               "resume": str(args.resume) if args.resume else None, "history": history,
+              "last_output": str(args.last_output) if args.last_output else None,
               "weights_sha256": hashlib.sha256(args.output.read_bytes()).hexdigest()}
     runtime["peak_cuda_memory_bytes"] = torch.cuda.max_memory_allocated(device) if cuda else 0
     args.output.with_suffix(".training.json").write_text(json.dumps(report, indent=2) + "\n")

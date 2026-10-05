@@ -10,60 +10,11 @@ import shutil
 import subprocess
 import sys
 import time
-from scripts.deep_gen9 import sha, save, passes
+from trainer.experiment import sha, save, passes
 from scripts.match_external import Peer
 
 ROOT = Path(__file__).resolve().parents[1]
-MATE = 29500
-
-
-REGRESSIONS = [
-    ('h8g8i7g9g7i9h7f7h9h6j7k7i8g10j9', 'black'),
-    ('h8i7g7i9h6f8i8g6j4i5h9h7i10j8g10', 'black'),
-    ('h8g7i7g9h6j8g8h7j6i6k7k5l8i5k9j5l5k4', 'white'),
-]
-
-
-def heldout_boards():
-    boards = set()
-    for sequence, _ in REGRESSIONS:
-        tokens = re.findall(r'[a-o](?:1[0-5]|[1-9])', sequence)
-        for mirror in [False, True]:
-            for turns in range(4):
-                cells = ['0'] * 225
-                for i, token in enumerate(tokens):
-                    x, y = ord(token[0]) - ord('a'), int(token[1:]) - 1
-                    if mirror: x = 14 - x
-                    for _ in range(turns): x, y = 14 - y, x
-                    cells[y * 15 + x] = str(i % 2 + 1)
-                boards.add(''.join(cells))
-    return boards
-
-
-def thin_samples(samples):
-    """Keep all ordinary positions and at most the first two of each mate run.
-
-    Input is ordered by increasing occupancy within each immutable game group.
-    Mate signs alternate by side, so runs are tracked by absolute winning color.
-    """
-    groups = defaultdict(list)
-    for sample in samples:
-        groups[(sample['seed'], sample['game'], sample['size'], sample['rule'])].append(sample)
-    kept = []
-    for _, game in sorted(groups.items()):
-        run_color, count = None, 0
-        for sample in sorted(game, key=lambda s: len(s['board']) - s['board'].count('0')):
-            color = (sample['side'] if sample['score'] > 0 else 3 - sample['side']) if abs(sample['score']) >= MATE else None
-            if color is None:
-                run_color, count = None, 0
-                kept.append(sample)
-            else:
-                count = count + 1 if color == run_color else 1
-                run_color = color
-                if count <= 2:
-                    kept.append(sample)
-    return kept
-
+from trainer.sampling import MATE, REGRESSIONS, heldout_boards, thin_samples, board_rows
 
 def read_samples(path):
     with path.open() as stream:
@@ -75,20 +26,6 @@ def write_samples(path, samples):
         for sample in samples:
             stream.write(json.dumps(sample, separators=(',', ':')) + '\n')
 
-
-def board_rows(sample):
-    # The protocol infers absolute colors from chronological relative-color rows.
-    # Arbitrary cell order can accidentally alternate and invert the colors.
-    black = [p for p, c in enumerate(sample['board']) if c == '1']
-    white = [p for p, c in enumerate(sample['board']) if c == '2']
-    if len(black) not in (len(white), len(white) + 1) or sample['side'] != (1 if len(black) == len(white) else 2):
-        raise ValueError('invalid freestyle color counts/side')
-    order = []
-    for i, position in enumerate(black):
-        order.append((position, 1))
-        if i < len(white):
-            order.append((white[i], 2))
-    return [f'{p % 15},{p // 15},{1 if color == sample["side"] else 2}' for p, color in order]
 
 
 def reanalyze(engine, weights, samples, nodes, threads):
@@ -150,6 +87,8 @@ def main():
     p.add_argument('--seed', type=int, default=1030262001)
     p.add_argument('--prepare-only', action='store_true', help='build and prepare data without training/arena')
     p.add_argument('--replay', type=Path, nargs='*', default=[], help='optional immutable previous cohorts; mate thinning applied')
+    p.add_argument('--reuse-data', type=Path, help='reuse a fixed labeled cohort without selfplay/reanalysis')
+    p.add_argument('--compare-initialization', action='store_true', help='plain/revived/scratch with the same learning-rate grid and split')
     args = p.parse_args()
     if min(args.threads, args.epochs, args.selfplay_nodes, args.reanalyze_nodes, args.arena_nodes, args.arena_time_ms) < 1 or args.games < 4 or min(args.screen_pairs, args.verify_pairs) < 32 or args.reanalyze_limit < 0 or args.threads > 256 or not 0 <= args.seed < 2**64 - 310000:
         p.error('positive limits, at least 4 games and 32 opening pairs required')
@@ -190,39 +129,48 @@ def main():
     report['engine_sha256'] = sha(engine)
     report['arena_sha256'] = sha(arena)
     report['source_sha256'] = {str(x.relative_to(ROOT)): sha(x) for folder, pattern in [('src', '*.rs'), ('trainer', '*.py'), ('scripts', '*.py'), ('scripts', '*.sh')] for x in sorted((ROOT / folder).rglob(pattern))}
-    raw = output / 'raw.jsonl'
-    seconds = execute([str(target / 'release/selfplay'), '--weights', str(champion), '--games', str(args.games),
-                       '--nodes', str(args.selfplay_nodes), '--depth', '64', '--branch', '16', '--size', '15',
-                       '--threads', str(args.threads), '--seed', str(args.seed), '--exploration', '.3', '--output', str(raw)], output, 'selfplay')
-    samples = read_samples(raw)
-    ordinary = [s for s in samples if abs(s['score']) < MATE]
-    # Budget-limited ordinary positions first; round-robin games avoids one game's tail dominating.
-    by_game = defaultdict(list)
-    for s in sorted(ordinary, key=lambda s: (-s['nodes'], s['game'], s['board'])):
-        by_game[s['game']].append(s)
-    selected = []
-    while by_game and len(selected) < args.reanalyze_limit:
-        for game in list(sorted(by_game)):
-            selected.append(by_game[game].pop(0))
-            if not by_game[game]:
-                del by_game[game]
-            if len(selected) >= args.reanalyze_limit:
-                break
-    started = time.monotonic()
-    changed = reanalyze(engine, champion, selected, args.reanalyze_nodes, args.threads) if selected else 0
-    kept = thin_samples(samples)
-    for replay in args.replay:
-        kept.extend(thin_samples(read_samples(replay)))
-    heldout = heldout_boards()
-    excluded = {(s['seed'], s['game'], s['size'], s['rule']) for s in kept if s['board'] in heldout}
-    kept = [s for s in kept if (s['seed'], s['game'], s['size'], s['rule']) not in excluded]
-    data = output / 'training.jsonl' 
-    write_samples(data, kept)
-    report['data'] = {'raw_sha256': sha(raw), 'training_sha256': sha(data), 'raw_positions': len(samples),
-                      'kept_positions': len(kept), 'excluded_regression_games': len(excluded), 'ordinary_positions': sum(abs(s['score']) < MATE for s in kept),
-                      'selfplay_seconds': seconds, 'reanalyzed': len(selected), 'changed_sign': changed,
-                      'reanalysis_seconds': time.monotonic() - started,
-                      'replay': {str(x.resolve()): sha(x) for x in args.replay}}
+    if args.reuse_data:
+        samples = read_samples(args.reuse_data)
+        heldout = heldout_boards()
+        excluded = {(s['seed'], s['game'], s['size'], s['rule']) for s in samples if s['board'] in heldout}
+        kept = [s for s in samples if (s['seed'], s['game'], s['size'], s['rule']) not in excluded]
+        data = output / 'training.jsonl'
+        write_samples(data, kept)
+        report['data'] = {'reused_from': str(args.reuse_data), 'input_sha256': sha(args.reuse_data), 'training_sha256': sha(data), 'kept_positions': len(kept), 'excluded_regression_games': len(excluded)}
+    else:
+        raw = output / 'raw.jsonl'
+        seconds = execute([str(target / 'release/selfplay'), '--weights', str(champion), '--games', str(args.games),
+                           '--nodes', str(args.selfplay_nodes), '--depth', '64', '--branch', '16', '--size', '15',
+                           '--threads', str(args.threads), '--seed', str(args.seed), '--exploration', '.3', '--output', str(raw)], output, 'selfplay')
+        samples = read_samples(raw)
+        ordinary = [s for s in samples if abs(s['score']) < MATE]
+        # Budget-limited ordinary positions first; round-robin games avoids one game's tail dominating.
+        by_game = defaultdict(list)
+        for s in sorted(ordinary, key=lambda s: (-s['nodes'], s['game'], s['board'])):
+            by_game[s['game']].append(s)
+        selected = []
+        while by_game and len(selected) < args.reanalyze_limit:
+            for game in list(sorted(by_game)):
+                selected.append(by_game[game].pop(0))
+                if not by_game[game]:
+                    del by_game[game]
+                if len(selected) >= args.reanalyze_limit:
+                    break
+        started = time.monotonic()
+        changed = reanalyze(engine, champion, selected, args.reanalyze_nodes, args.threads) if selected else 0
+        kept = thin_samples(samples)
+        for replay in args.replay:
+            kept.extend(thin_samples(read_samples(replay)))
+        heldout = heldout_boards()
+        excluded = {(s['seed'], s['game'], s['size'], s['rule']) for s in kept if s['board'] in heldout}
+        kept = [s for s in kept if (s['seed'], s['game'], s['size'], s['rule']) not in excluded]
+        data = output / 'training.jsonl'
+        write_samples(data, kept)
+        report['data'] = {'raw_sha256': sha(raw), 'training_sha256': sha(data), 'raw_positions': len(samples),
+                          'kept_positions': len(kept), 'excluded_regression_games': len(excluded), 'ordinary_positions': sum(abs(s['score']) < MATE for s in kept),
+                          'selfplay_seconds': seconds, 'reanalyzed': len(selected), 'changed_sign': changed,
+                          'reanalysis_seconds': time.monotonic() - started,
+                          'replay': {str(x.resolve()): sha(x) for x in args.replay}}
     save(summary, report)
     if args.prepare_only:
         print(json.dumps({'prepared': str(summary)}), flush=True)
@@ -239,17 +187,23 @@ def main():
         result = json.loads(path.read_text())
         return {k: v for k, v in result.items() if k != 'results'} | {'report': str(path), 'seconds': seconds, 'passed': passes(result) and result['complete_pairs'] == pairs, 'timed': timed}
 
-    for name, outcome in [('search', 0), ('mixed', .3)]:
+    configurations = [(name, outcome, 'plain', .00003) for name, outcome in [('search', 0), ('mixed', .3)]]
+    if args.compare_initialization:
+        configurations = [(f'{mode}-lr{lr:g}', 0, mode, lr) for mode in ['plain', 'revived', 'scratch'] for lr in [.00003, .0003, .003]]
+    for name, outcome, mode, lr in configurations:
         folder = output / name; folder.mkdir()
-        points = sorted({1, min(3, args.epochs), args.epochs})
+        points = sorted({1, min(6 if args.compare_initialization else 3, args.epochs), args.epochs})
+        initialization = [] if mode == 'scratch' else ['--resume', str(champion.with_suffix('.pt'))]
+        if mode == 'revived': initialization += ['--revive-flat-units']
         execute([sys.executable, '-m', 'trainer.train', '--data', str(data), '--output', str(folder / 'best.nnue'),
-                 '--resume', str(champion.with_suffix('.pt')), '--architecture', 'legacy', '--epochs', str(args.epochs),
-                 '--checkpoint-epochs', *map(str, points), '--lr', '.00003', '--outcome-weight', str(outcome),
+                 *initialization, '--architecture', 'legacy', '--epochs', str(args.epochs),
+                 '--checkpoint-epochs', *map(str, points), '--lr', str(lr), '--outcome-weight', str(outcome),
                  '--policy-weight', '0', '--device', args.device, '--precision', 'fp32', '--deterministic',
                  '--threads', str(min(args.threads, 4)), '--workers', '0', '--batch-size', '256',
                  '--seed', str(args.seed + 1), '--split-seed', '42'], folder, 'train')
         seen = set()
-        for candidate in [folder / f'epoch-{e:03d}.nnue' for e in points] + [folder / 'best.nnue']:
+        candidates = [folder / 'best.nnue'] if args.compare_initialization else [folder / f'epoch-{e:03d}.nnue' for e in points] + [folder / 'best.nnue']
+        for candidate in candidates:
             digest = sha(candidate)
             if digest in seen:
                 continue
@@ -266,7 +220,7 @@ def main():
                 report.setdefault('rejected_regressions', []).append({'candidate': str(candidate), 'passed': regressions})
                 save(summary, report)
                 continue
-            trial = {'candidate': str(candidate), 'sha256': digest, 'checks': [],
+            trial = {'candidate': str(candidate), 'initialization': mode, 'learning_rate': lr, 'sha256': digest, 'checks': [],
                      'screen': match(candidate, folder, candidate.stem + '-screen', champion, args.screen_pairs, args.seed + 100000)}
             report['trials'].append(trial); save(summary, report)
     eligible = sorted((t for t in report['trials'] if t['screen']['paired_mean'] >= .5 and t['screen']['truncated'] == 0), key=lambda t: t['screen']['paired_mean'], reverse=True)

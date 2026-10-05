@@ -4,7 +4,7 @@
 
 ## 启动
 
-需要Rust 1.88以上、WASM目标、Python；训练依赖由uv管理。
+需要Rust 1.88以上、WASM目标、Python；训练需要PyTorch；云端可直接使用已有Python环境。
 
 ```bash
 cargo build --release --bins
@@ -15,14 +15,14 @@ python3 -m http.server 8000 --directory web
 打开 http://localhost:8000 。原生入口：
 
 ```bash
-target/release/nolos-nnue --weights artifacts/cloud-gen9.nnue
+target/release/nolos-nnue
 ```
 
 官方Rust工具链先执行 `rustup target add wasm32-unknown-unknown`；Arch可安装匹配的 `rust`、`rust-wasm`。网页默认HCE，可手动加载 `.nnue`；刷新页面才能使用新WASM。
 
 ## 当前状态与文档
 
-推荐模型是第9代，新搜索能识别此前漏掉的长杀棋；尚未证明整体棋力达到Rapfi。此前spatial与多轮微调均未晋升，现在准备新搜索标签的小规模legacy试训。
+推荐模型是第9代，新搜索能识别此前漏掉的长杀棋；尚未证明整体棋力达到Rapfi。此前spatial与多轮微调均未晋升；当前按HCE起步、随机初始化NNUE进行大规模自进化，上传包不含第9代权重或旧数据。
 
 - [训练方案](docs/training.md)：当前试训计划、环境与评测要求。
 - [协议](docs/protocol.md)、[网络格式](docs/network.md)：实现规范，按需查阅。

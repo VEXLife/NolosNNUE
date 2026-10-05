@@ -362,7 +362,11 @@ impl Search {
             } else {
                 f.ply > 0 && f.depth >= 4 && f.next > 4
             };
+            // A quiet preparation can fail low at reduced depth despite a
+            // forced win at full depth. Keep PV nodes at full depth; use LMR
+            // only in null-window nodes, where it remains a selective probe.
             let reduction = if late
+                && f.beta - f.alpha <= 1
                 && !f.forced_extension
                 && self.board.move_score(p, f.side) < 1200
                 && self.board.move_score(p, 3 - f.side) < 1200
@@ -1021,6 +1025,7 @@ mod spatial_search_tests {
     #[test]
     fn spatial_frontier_keeps_quiet_candidates_and_prioritizes_tactics() {
         let net = Arc::new(Network {
+            quantized: None,
             embedding: vec![],
             bias: [0.0; HIDDEN],
             head: [0.0; HIDDEN],

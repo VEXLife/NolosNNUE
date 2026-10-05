@@ -13,12 +13,12 @@ python3 -m http.server 8000 --directory web
 Requires Rust 1.88+ and the `wasm32-unknown-unknown` target. Open http://localhost:8000, or run:
 
 ```sh
-target/release/nolos-nnue --weights artifacts/cloud-gen9.nnue
+target/release/nolos-nnue
 ```
 
 The browser defaults to handcrafted evaluation; load a network manually. Refresh after rebuilding WASM. Deploy `web/` to any static host.
 
-Generation 9 remains the recommended model. New search fixes missed tactical sequences; overall strength gains remain unverified. Previous spatial and fine-tuning trials failed promotion. The next experiment is a small legacy fine-tune with improved search labels and sampling, described in [training](docs/training.md).
+Generation 9 remains the existing playing model. The current training run starts from HCE with randomly initialized NNUE, larger self-play cohorts and independently gated promotion. See [training](docs/training.md). The HCE upload package contains no pretrained weights.
 
 [Protocol](docs/protocol.md) · [Network format](docs/network.md) · [Experiment history](docs/history.md)
 
