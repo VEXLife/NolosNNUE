@@ -15,9 +15,11 @@ function pump() {
   try {
     // Short work slices let queued YXSTOP messages run without shared memory,
     // COOP/COEP headers, or browser-specific thread support.
-    const deadline = performance.now() + 8;
+    // Up to one frame of work per slice amortizes timer scheduling overhead
+    // while leaving the next slice available for queued stop commands.
+    const deadline = performance.now() + 16;
     let busy = false;
-    do { busy = !!wasm.engine_tick(16); } while (busy && performance.now() < deadline);
+    do { busy = !!wasm.engine_tick(32); } while (busy && performance.now() < deadline);
     pumping = busy;
     if (busy !== lastBusy || requestId !== lastBusyRequest) {
       postMessage({ type: 'busy', busy, requestId });
@@ -30,7 +32,7 @@ function pump() {
 onmessage = async ({ data }) => {
   try {
     if (data.type === 'init') {
-      const response = await fetch(new URL('nolos_nnue.wasm', import.meta.url));
+      const response = await fetch(new URL('nolos_nnue.wasm', import.meta.url), { cache: 'no-cache' });
       if (!response.ok) throw Error(`WASM download failed: ${response.status}`);
       const instance = await WebAssembly.instantiate(await response.arrayBuffer(), { host: { output, now_ms: () => performance.now() } });
       wasm = instance.instance.exports; memory = wasm.memory;

@@ -12,7 +12,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=ROOT / 'artifacts/gomoku-hce-evolution.zip')
     args = parser.parse_args()
-    names = ['Cargo.toml', 'Cargo.lock', 'pyproject.toml', 'uv.lock', 'LICENSE',
+    names = ['.cargo/config.toml', 'Cargo.toml', 'Cargo.lock', 'pyproject.toml', 'uv.lock', 'LICENSE',
              'AGENTS.md', 'README.md', 'README.zh-CN.md',
              'scripts/train_hce.sh', 'scripts/resume_hce.py', 'scripts/resume_engine.py', 'scripts/package_hce.py', 'scripts/build-web.sh',
              'scripts/check_protocol.py', 'scripts/check_wasm.mjs', 'scripts/check_network.py',

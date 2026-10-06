@@ -18,7 +18,7 @@ target/release/nolos-nnue
 
 The browser defaults to handcrafted evaluation; load a network manually. Refresh after rebuilding WASM. Deploy `web/` to any static host.
 
-Generation 9 remains the existing playing model. The current training run starts from HCE with randomly initialized NNUE, larger self-play cohorts and independently gated promotion. See [training](docs/training.md). The HCE upload package contains no pretrained weights.
+The latest user-selected playing model is `models/hce-local-003.nnue`; its strength has not been independently verified. Earlier models remain in `models/`. The current training run starts from HCE with randomly initialized NNUE, larger self-play cohorts and independently gated promotion. See [training](docs/training.md). The HCE upload package contains no pretrained weights.
 
 [Protocol](docs/protocol.md) · [Network format](docs/network.md) · [Experiment history](docs/history.md)
 

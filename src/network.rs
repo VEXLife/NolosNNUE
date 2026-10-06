@@ -129,10 +129,7 @@ impl Network {
     }
 
     pub fn value(&self, black: &[f32; HIDDEN], white: &[f32; HIDDEN], side: u8) -> i32 {
-        let mut value = 0.0;
-        for i in 0..HIDDEN {
-            value += (black[i].clamp(0.0, 1.0) - white[i].clamp(0.0, 1.0)) * self.head[i];
-        }
+        let mut value = crate::simd::clipped_dot(black, white, &self.head);
         if side == 2 {
             value = -value;
         }

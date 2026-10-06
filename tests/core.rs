@@ -80,6 +80,16 @@ fn incremental_win_cache_survives_moves_undo_remove_and_rule_changes() {
             board.make(p, (step % 2 + 1) as u8);
             check(&mut board);
         }
+        // A cache rebuild invalidates old undo records. New moves must still
+        // restore correctly, with older history falling back to recomputation.
+        let mut rebuilt = board.clone();
+        rebuilt.rebuild_win_cache();
+        let (p, color) = rebuilt.undo().unwrap();
+        check(&mut rebuilt);
+        rebuilt.make(p, color);
+        check(&mut rebuilt);
+        rebuilt.undo();
+        check(&mut rebuilt);
         while !board.history.is_empty() {
             if board.history.len() % 3 == 0 {
                 let p = board.history[board.history.len() / 2].0;
@@ -220,6 +230,16 @@ fn incremental_candidates_match_full_radius_scan_after_make_undo_and_remove() {
             }
             board.make(p, (i % 2 + 1) as u8);
             check(&board);
+            // Tactical probes temporarily change occupancy without updating
+            // neighbor coverage; candidate filtering must still observe cells.
+            if let Some(q) = board.candidates().first().copied() {
+                board.cells[q] = 1;
+                check(&board);
+                let clone = board.clone();
+                check(&clone);
+                board.cells[q] = 0;
+                check(&board);
+            }
         }
         board.remove(board.history[3].0).unwrap();
         check(&board);

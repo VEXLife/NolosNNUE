@@ -18,7 +18,7 @@ def main():
     args = parser.parse_args()
     initial_model(ROOT / 'artifacts/cloud-gen9.nnue')
     files = [ROOT / name for name in (
-        'Cargo.toml', 'Cargo.lock', 'pyproject.toml', 'uv.lock', 'LICENSE',
+        '.cargo/config.toml', 'Cargo.toml', 'Cargo.lock', 'pyproject.toml', 'uv.lock', 'LICENSE',
         'AGENTS.md', 'README.md', 'README.zh-CN.md', 'docs/protocol.md',
         'artifacts/cloud-gen9.nnue', 'artifacts/cloud-gen9.pt',
         'docs/training.md', 'docs/network.md', 'docs/history.md',

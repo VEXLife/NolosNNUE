@@ -206,7 +206,10 @@ impl Search {
         board.rebuild_accumulators();
         let mut moves = board.candidates();
         moves.retain(|p| board.legal(*p, side));
-        moves.sort_by_key(|p| -(board.move_score(*p, side) + board.move_score(*p, 3 - side)));
+        moves.sort_by_cached_key(|p| {
+            let scores = board.move_scores(*p);
+            -(scores[0] + scores[1])
+        });
         let fallback = moves.first().copied();
         let score = board.evaluate(side);
         let vcf = (board.rule == Rule::Freestyle)
@@ -368,8 +371,10 @@ impl Search {
             let reduction = if late
                 && f.beta - f.alpha <= 1
                 && !f.forced_extension
-                && self.board.move_score(p, f.side) < 1200
-                && self.board.move_score(p, 3 - f.side) < 1200
+                && {
+                    let scores = self.board.move_scores(p);
+                    scores[0] < 1200 && scores[1] < 1200
+                }
             {
                 if self.selective_search {
                     let scale = f.depth.ilog2() as usize * f.next.ilog2() as usize / 2;
@@ -558,6 +563,9 @@ impl Search {
         let previous = if ply == 0 { self.result.best } else { None };
         let killer = self.killers[ply.min(511)];
         candidates.sort_by_cached_key(|p| {
+            let scores = self.board.move_scores(*p);
+            let own_score = scores[side as usize - 1];
+            let other_score = scores[2 - side as usize];
             let priority = if Some(*p) == previous || Some(*p) == tt_move {
                 50_000_000
             } else if killer.contains(p) {
@@ -566,8 +574,7 @@ impl Search {
                 0
             };
             let tactical = if self.board.policy_score(*p, side).is_some()
-                && (self.board.move_score(*p, side) >= 2400
-                    || self.board.move_score(*p, 3 - side) >= 2400)
+                && (own_score >= 2400 || other_score >= 2400)
             {
                 2_000_000
             } else {
@@ -580,8 +587,8 @@ impl Search {
                     .policy_score(*p, side)
                     .map(|v| (v.clamp(-30.0, 30.0) * 1500.0) as i32)
                     .unwrap_or(0)
-                + self.board.move_score(*p, side) * 2
-                + self.board.move_score(*p, 3 - side)
+                + own_score * 2
+                + other_score
                 + self.history[(side as usize - 1) * self.board.cells.len() + *p].min(200_000))
         });
         if depth > 0 && !forced && !threat_defense && self.board.policy_score(candidates[0], side).is_none() {

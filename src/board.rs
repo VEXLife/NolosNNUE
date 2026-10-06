@@ -3,6 +3,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 pub const DIRS: [(isize, isize); 4] = [(1, 0), (0, 1), (1, 1), (1, -1)];
+type WinMasks = [[u8; 2]; 2];
+// Four directions, at most five dependent centers on either side.
+type WinUndo = [WinMasks; 40];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Rule {
@@ -55,9 +58,13 @@ pub struct Board {
     geometry: Arc<Geometry>,
     patterns: Vec<usize>,
     neighbor_counts: Vec<u8>,
+    // Radius-two coverage, including occupied cells so raw tactical probes
+    // can still filter against the current cells without mutating this set.
+    candidate_bits: [u64; 7],
     // Per color: directional bits for >=5 and exactly 5. Keep both so a
     // protocol rule change never invalidates the geometric cache.
-    win_masks: Vec<[[u8; 2]; 2]>,
+    win_masks: Vec<WinMasks>,
+    win_undo: Vec<WinUndo>,
     win_cache_enabled: bool,
     pub hce: i32,
     pub network: Option<Arc<Network>>,
@@ -243,7 +250,9 @@ impl Board {
             }),
             patterns,
             neighbor_counts: vec![0; size * size],
+            candidate_bits: [0; 7],
             win_masks: vec![[[0; 2]; 2]; size * size],
+            win_undo: Vec::new(),
             win_cache_enabled: true,
             hce: 0,
             network: None,
@@ -286,7 +295,7 @@ impl Board {
         }
     }
 
-    fn update(&mut self, p: usize, color: u8) {
+    fn update(&mut self, p: usize, color: u8, win_restore: Option<&WinUndo>) {
         let prev = self.cells[p];
         if prev != 0 {
             self.hash ^= mix64((p * 2 + prev as usize) as u64 + 1000);
@@ -296,23 +305,35 @@ impl Board {
         }
         self.cells[p] = color;
         if self.win_cache_enabled {
-            for &(q, direction) in &self.geometry.win_dependents[p] {
-                for side in [1, 2] {
-                    let n = self.win_run(q, side, direction);
-                    let masks = &mut self.win_masks[q][side as usize - 1];
-                    let bit = 1 << direction;
-                    masks[0] = (masks[0] & !bit) | if n >= 5 { bit } else { 0 };
-                    masks[1] = (masks[1] & !bit) | if n == 5 { bit } else { 0 };
+            if let Some(previous) = win_restore {
+                for (entry, &(q, _)) in self.geometry.win_dependents[p].iter().enumerate() {
+                    self.win_masks[q] = previous[entry];
+                }
+            } else {
+                for &(q, direction) in &self.geometry.win_dependents[p] {
+                    for side in [1, 2] {
+                        let n = self.win_run(q, side, direction);
+                        let masks = &mut self.win_masks[q][side as usize - 1];
+                        let bit = 1 << direction;
+                        masks[0] = (masks[0] & !bit) | if n >= 5 { bit } else { 0 };
+                        masks[1] = (masks[1] & !bit) | if n == 5 { bit } else { 0 };
+                    }
                 }
             }
         }
         if prev == 0 && color != 0 {
             for q in &self.geometry.neighbors[p] {
                 self.neighbor_counts[*q] += 1;
+                if self.neighbor_counts[*q] == 1 {
+                    self.candidate_bits[*q / 64] |= 1 << (*q % 64);
+                }
             }
         } else if prev != 0 && color == 0 {
             for q in &self.geometry.neighbors[p] {
                 self.neighbor_counts[*q] -= 1;
+                if self.neighbor_counts[*q] == 0 {
+                    self.candidate_bits[*q / 64] &= !(1 << (*q % 64));
+                }
             }
         }
         if let (Some(state), Some(net)) = (
@@ -364,13 +385,21 @@ impl Board {
 
     pub fn make(&mut self, p: usize, color: u8) {
         debug_assert!(p < self.cells.len() && self.cells[p] == 0 && (color == 1 || color == 2));
-        self.update(p, color);
+        if self.win_cache_enabled {
+            let mut previous = [[[0; 2]; 2]; 40];
+            for (entry, &(q, _)) in self.geometry.win_dependents[p].iter().enumerate() {
+                previous[entry] = self.win_masks[q];
+            }
+            self.win_undo.push(previous);
+        }
+        self.update(p, color, None);
         self.history.push((p, color));
     }
 
     pub fn undo(&mut self) -> Option<(usize, u8)> {
         let mov = self.history.pop()?;
-        self.update(mov.0, 0);
+        let previous = self.win_undo.pop();
+        self.update(mov.0, 0, previous.as_ref());
         Some(mov)
     }
 
@@ -378,7 +407,8 @@ impl Board {
         if p >= self.cells.len() || self.cells[p] == 0 {
             return Err("no stone at takeback coordinate".into());
         }
-        self.update(p, 0);
+        self.win_undo.clear();
+        self.update(p, 0, None);
         self.history.retain(|m| m.0 != p);
         self.rebuild_accumulators();
         Ok(())
@@ -418,6 +448,18 @@ impl Board {
         } else {
             -delta
         }
+    }
+
+    /// Both colors share the same affected windows and old pattern scores.
+    pub(crate) fn move_scores(&self, p: usize) -> [i32; 2] {
+        let mut delta = [0, 0];
+        for &(w, shift) in &self.geometry.affected[p] {
+            let id = self.patterns[w];
+            let old = self.geometry.scores[id];
+            delta[0] += self.geometry.scores[id | (1 << shift)] - old;
+            delta[1] += old - self.geometry.scores[id | (2 << shift)];
+        }
+        delta
     }
 
     /// Necessary (not sufficient) condition for creating a four. Uses the
@@ -502,9 +544,13 @@ impl Board {
 
     // VCF explores few forced branches; maintaining all candidate threats
     // there costs more than scanning. This copy never returns to main search.
-    pub(crate) fn disable_win_cache(&mut self) { self.win_cache_enabled = false; }
+    pub(crate) fn disable_win_cache(&mut self) {
+        self.win_cache_enabled = false;
+        self.win_undo.clear();
+    }
 
     pub fn rebuild_win_cache(&mut self) {
+        self.win_undo.clear();
         for p in 0..self.cells.len() {
             for color in [1, 2] {
                 let mut masks = [0; 2];
@@ -532,17 +578,16 @@ impl Board {
         if self.history.is_empty() {
             return vec![(self.size / 2) * self.size + self.size / 2];
         }
-        self.neighbor_counts
-            .iter()
-            .enumerate()
-            .filter_map(|(p, n)| {
-                if *n > 0 && self.cells[p] == 0 {
-                    Some(p)
-                } else {
-                    None
-                }
-            })
-            .collect()
+        let mut candidates = Vec::new();
+        for (word, &bits) in self.candidate_bits.iter().enumerate() {
+            let mut bits = bits;
+            while bits != 0 {
+                let p = word * 64 + bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                if self.cells[p] == 0 { candidates.push(p); }
+            }
+        }
+        candidates
     }
 
     pub fn legal(&mut self, p: usize, side: u8) -> bool {
@@ -670,5 +715,32 @@ impl Board {
             hce += self.geometry.scores[id];
         }
         counts == self.counts && hce == self.hce
+    }
+}
+
+#[cfg(test)]
+mod move_score_tests {
+    use super::*;
+
+    #[test]
+    fn paired_scores_match_actual_pattern_evaluation_changes() {
+        for size in [5, 9, 15, 20] {
+            let mut board = Board::new(size, Rule::Freestyle).unwrap();
+            for step in 0..8 {
+                for p in 0..size * size {
+                    if board.cells[p] != 0 { continue; }
+                    let scores = board.move_scores(p);
+                    for side in [1, 2] {
+                        let mut child = board.clone();
+                        child.make(p, side);
+                        let delta = child.hce - board.hce;
+                        assert_eq!(scores[side as usize - 1], if side == 1 { delta } else { -delta });
+                    }
+                }
+                let mut p = mix64(step + 981) as usize % board.cells.len();
+                while board.cells[p] != 0 { p = (p + 1) % board.cells.len(); }
+                board.make(p, (step % 2 + 1) as u8);
+            }
+        }
     }
 }

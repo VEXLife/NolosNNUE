@@ -5,7 +5,7 @@
 ## 当前状态
 
 - Rust原生与WASM共用引擎；入口 `src/protocol.rs`，搜索 `src/search.rs`，训练 `trainer/`，网页 `web/`。
-- 当前对战模型仍是 `artifacts/cloud-gen9.nnue`；新训练完全从HCE开始，入口 `scripts/train_hce.sh`，打包 `scripts/package_hce.py`，新包不含权重／旧数据。
+- 当前用户选择的对战模型是 `models/hce-local-003.nnue`（个人判断更强，未做正式对战复核）；旧模型保留在 `models/`；新训练完全从HCE开始，入口 `scripts/train_hce.sh`，打包 `scripts/package_hce.py`，新包不含权重／旧数据。
 - 默认30代×4096盘，学习器从验证最佳检查点继续、10轮早停、2.5%标签软化、每步5万节点、杀棋收尾限采样、四代回放、每代128对竞技、52%得分晋升（不复核）；配置和续跑见 `docs/training.md`。
 - 搜索已修复PV节点LMR漏杀；默认qdepth=1、selective关闭。最近初始化对照未晋升，历史只需按需查 `docs/history.md`。
 - 旧spatial启动、refine、sweep、deep实验脚本已移除，原件保存在忽略的 `.agent/obsolete-training-20261003.tgz`。保留网络格式、检查工具和可用的微调入口。
@@ -23,7 +23,7 @@ cargo test --lib --test core
 cargo build --release --bins
 bash scripts/build-web.sh
 python3 scripts/check_protocol.py
-node scripts/check_wasm.mjs web/nolos_nnue.wasm artifacts/cloud-gen9.nnue
+node scripts/check_wasm.mjs web/nolos_nnue.wasm models/hce-local-003.nnue
 ```
 
 本机release测试曾遇到工具链LTO冲突；debug测试和release bins正常。按改动选检查，不重复跑无关历史实验。
