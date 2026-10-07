@@ -2,28 +2,195 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="NolosNNUE：从棋形评估自举训练的五子棋引擎，在浏览器本地运行。">
-  <meta name="theme-color" content="#111917">
-  <title>NolosNNUE · 五子棋实验室</title><link rel="stylesheet" href="style.css">
+  <meta name="description" content="NolosNNUE: a self-bootstrapped Gomoku engine running locally in your browser. 在浏览器本地运行的五子棋引擎。">
+  <meta name="theme-color" content="#141210">
+  <title>NolosNNUE · Gomoku Lab</title>
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header><a class="brand" href="./"><span class="brand-mark">✳</span> NolosNNUE<span class="brand-sub">五子棋实验室</span></a><div class="engine-state"><span id="engine-dot" class="dot"></span><span id="engine-status">正在加载引擎</span></div></header>
-<main>
-  <section class="play-section">
-    <div class="intro"><span class="eyebrow">从棋形，到直觉</span><h1>下一步，由你。</h1><p>在浏览器里探索一个从零自举的五子棋引擎。</p></div>
-    <div class="board-card"><div class="board-top"><div class="turn"><span id="turn-stone" class="mini-stone black"></span><span id="turn-text">黑方先行</span></div><span id="move-counter">第 0 手</span></div><canvas id="board" aria-label="五子棋棋盘，点击交点落子" role="img"></canvas><div class="board-bottom"><span id="position-status" role="status">点击棋盘开始对弈</span><span id="view-state" class="view-state">数字自上而下 · 标准方向</span></div></div>
-    <div class="actions"><button id="new-game" class="primary">新对局</button><button id="undo">悔棋</button><button id="analyze">分析局面</button><button id="play-best" disabled>采用建议</button><button id="stop" disabled>停止思考</button></div>
-    <div id="notice" class="notice" role="alert" hidden></div>
+
+<header class="topbar">
+  <a class="brand" href="./">
+    <img class="brand-mark" src="icon.svg" alt="" aria-hidden="true">
+    <span class="brand-name">Nolos<b>NNUE</b></span>
+    <span class="brand-sub" data-i18n="brand.sub"></span>
+  </a>
+  <div class="top-actions">
+    <div class="engine-pill" id="engine-pill"><span class="dot"></span><span id="engine-status"></span></div>
+    <button id="lang-toggle" class="ghost-btn" type="button" aria-label="Language / 语言"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.6 3.8 5.6 3.8 9s-1.2 6.4-3.8 9c-2.6-2.6-3.8-5.6-3.8-9s1.2-6.4 3.8-9z"/></svg><span id="lang-label"></span></button>
+    <button id="ui-toggle" class="ghost-btn icon-only" type="button" data-i18n-title="ui.toggle" data-i18n-aria="ui.toggle"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"/></svg></button>
+    <button id="help-open" class="ghost-btn icon-only" type="button" data-i18n-title="keys.title" data-i18n-aria="keys.title">?</button>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="stage">
+    <div class="players">
+      <div class="player" id="player-black"><span class="stone-icon black"></span><div><b data-i18n="black"></b><small id="player-black-who"></small></div><span class="think-bars" aria-hidden="true"><i></i><i></i><i></i></span></div>
+      <div class="move-badge"><span id="move-counter"></span><small id="turn-text"></small></div>
+      <div class="player right" id="player-white"><span class="think-bars" aria-hidden="true"><i></i><i></i><i></i></span><div><b data-i18n="white"></b><small id="player-white-who"></small></div><span class="stone-icon white"></span></div>
+    </div>
+
+    <div class="board-frame" id="board-frame">
+      <div class="board-host" id="board-host" role="img" data-i18n-aria="aria.board"></div>
+      <div class="board-tools">
+        <div class="seg mini" id="view-seg"><button data-value="3d">3D</button><button data-value="2d">2D</button></div>
+        <button id="reset-camera" class="icon-btn glass" data-i18n-title="view.camera" data-i18n-aria="view.camera"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
+      </div>
+    </div>
+
+    <div class="board-status">
+      <span id="position-status" role="status"></span>
+      <span id="hover-coord" class="hover-coord"></span>
+      <span id="view-state" class="view-state"></span>
+    </div>
+
+    <div class="controls">
+      <div class="nav-group" role="group">
+        <button id="nav-first" class="icon-btn" data-i18n-title="nav.first" data-i18n-aria="nav.first"><svg viewBox="0 0 24 24"><path d="M6 5v14M18 6l-8 6 8 6z"/></svg></button>
+        <button id="nav-prev" class="icon-btn" data-i18n-title="nav.prev" data-i18n-aria="nav.prev"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <input id="nav-slider" type="range" min="0" max="0" value="0" aria-label="move">
+        <button id="nav-next" class="icon-btn" data-i18n-title="nav.next" data-i18n-aria="nav.next"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+        <button id="nav-last" class="icon-btn" data-i18n-title="nav.last" data-i18n-aria="nav.last"><svg viewBox="0 0 24 24"><path d="M18 5v14M6 6l8 6-8 6z"/></svg></button>
+      </div>
+      <div class="actions">
+        <button id="new-game" class="primary" data-i18n="btn.new"></button>
+        <button id="undo" data-i18n="btn.undo"></button>
+        <button id="analyze" data-i18n="btn.analyze"></button>
+        <button id="play-best" disabled data-i18n="btn.playBest"></button>
+        <button id="stop" class="danger" disabled data-i18n="btn.stop"></button>
+        <button id="branch" class="accent" hidden data-i18n="btn.continue"></button>
+      </div>
+    </div>
+    <div id="notice" class="notice" role="alert" hidden><span id="notice-text"></span><button id="notice-close" class="ghost-btn" aria-label="×">×</button></div>
+    <section class="console">
+    <details>
+      <summary><span data-i18n="console.title"></span><small data-i18n="console.sub"></small></summary>
+      <pre id="protocol-log" aria-live="off"></pre>
+      <form id="command-form"><input id="command-input" data-i18n-placeholder="console.placeholder" aria-label="Yixin"><button data-i18n="console.send"></button><button type="button" id="clear-log" data-i18n="console.clear"></button></form>
+    </details>
+    </section>
   </section>
-  <aside>
-    <section class="panel"><div class="panel-heading"><h2>引擎评估</h2><span id="evaluator-tag" class="tag">HCE 基线</span></div><div class="evaluation"><strong id="eval-value">—</strong><span id="eval-caption">等待分析</span></div><div class="winrate-line"><small>搜索方胜率</small><b id="winrate">—</b><span class="scale-note">0% 红 → 100% 绿</span></div><div class="balance"><span id="balance-fill"></span></div><div class="metrics"><div><small>深度</small><b id="depth">—</b></div><div><small>节点</small><b id="nodes">—</b></div><div><small>用时</small><b id="elapsed">—</b></div></div><div class="pv-area"><small>主要变化</small><div id="pv">搜索后显示建议路线</div></div></section>
-    <section class="panel"><div class="panel-heading"><h2>对局设置</h2></div><div class="settings"><label>模式<select id="mode"><option value="black">我执黑</option><option value="white">我执白</option><option value="analysis">自由摆棋 / 分析</option></select></label><label>规则<select id="rule"><option value="0">自由五子棋</option><option value="1">标准五子棋 · 恰好五连</option><option value="2">连珠 · 黑方有禁手</option></select></label><label>棋盘<select id="size"><option value="15">15 × 15</option><option value="20">20 × 20</option><option value="9">9 × 9</option></select></label><label>每步用时<select id="time"><option value="1000">1 秒</option><option value="3000" selected>3 秒</option><option value="10000">10 秒</option><option value="30000">30 秒</option></select></label><label>最大深度<input id="max-depth" type="number" min="1" max="64" value="64"></label><label>节点上限<input id="max-nodes" type="number" min="1" max="100000000" value="100000000"></label></div><p class="hint">切换模式会保留当前棋盘与棋谱；若切换后轮到引擎，它会自动补上一手，自由摆棋模式则始终由人落子。规则或棋盘变化仍会开始新对局。分析模式可自由落子，也可在下方棋谱面板填入棋谱。</p></section>
-    <section class="panel record-panel"><div class="panel-heading"><h2>棋谱</h2><span id="record-count" class="tag subdued">0 手</span></div><textarea id="record" spellcheck="false" autocomplete="off" placeholder="例如 h8g7g12f10" aria-label="棋谱：逐手字母加数字"></textarea><div class="record-row"><button id="record-copy" class="text-button">复制棋谱</button><span class="record-hint">字母自左向右 · 数字方向可切换</span></div><div class="view-controls"><label>数字方向<select id="row-direction"><option value="down" selected>从上往下（1 在顶部）</option><option value="up">从下往上（1 在底部）</option></select></label><div class="view-buttons"><button id="rotate-ccw" type="button" class="icon-button" title="逆时针旋转 90°" aria-label="逆时针旋转 90°"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.6 12.4a7.6 7.6 0 1 0 7.6-7.6"/><polyline points="14.9 2.4 12.2 4.8 14.9 7.2"/></svg></button><button id="rotate-cw" type="button" class="icon-button" title="顺时针旋转 90°" aria-label="顺时针旋转 90°"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 12.4a7.6 7.6 0 1 1-7.6-7.6"/><polyline points="9.5 2.4 12.2 4.8 9.5 7.2"/></svg></button><button id="flip-vertical" type="button" class="icon-button" title="上下翻转" aria-label="上下翻转"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="icon-fill" d="M5.4 3.6h13.2v7.2H5.4z"/><path d="M5.4 13.2h13.2v7.2H5.4z"/><line x1="3.2" y1="12" x2="20.8" y2="12" stroke-dasharray="2.6 2.6"/></svg></button><button id="flip-horizontal" type="button" class="icon-button" title="水平翻转" aria-label="水平翻转"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="icon-fill" d="M3.6 5.4h7.2v13.2H3.6z"/><path d="M13.2 5.4h7.2v13.2h-7.2z"/><line x1="12" y1="3.2" x2="12" y2="20.8" stroke-dasharray="2.6 2.6"/></svg></button><button id="reset-view" type="button" class="text-button">复位</button></div></div><p class="hint">按先黑后白逐手排列；填完后按回车确认（或点开输入框让它失焦后确认）。未确认时输入框会显示为待确认色。棋谱是单行输入，回车不会换行。若当前轮到引擎，它会照常应手。旋转与翻转会同时更新棋盘和棋谱，引擎仍按原始坐标计算。</p></section>
-    <section class="panel weights-panel"><div class="panel-heading"><h2>神经网络权重</h2><span class="tag subdued">NNUE</span></div><p id="weights-name">当前使用手写棋形评估，不需要权重。</p><label class="file-button">加载本地权重<input id="weights-file" type="file" accept=".nnue,application/octet-stream"></label><div class="url-row"><input id="weights-url" type="url" placeholder="权重文件 URL" aria-label="权重文件 URL"><button id="load-url">加载</button></div><button id="use-hce" class="text-button">恢复 HCE 基线</button><p class="hint">权重和计算保留在浏览器中。支持本项目的 .nnue 格式；跨域 URL 需允许 CORS。</p></section>
+
+  <aside class="side">
+    <section class="card eval-card" id="eval-card">
+      <div class="card-head"><h2 data-i18n="eval.title"></h2><span id="vcf-tag" class="tag hot" hidden></span><span id="evaluator-tag" class="tag"></span></div>
+      <div class="eval-main">
+        <div class="gauge">
+          <svg viewBox="0 0 120 120" aria-hidden="true"><circle class="gauge-track" cx="60" cy="60" r="50"/><circle class="gauge-fill" id="gauge-fill" cx="60" cy="60" r="50"/></svg>
+          <div class="gauge-text"><b id="winrate">—</b><small data-i18n="eval.winrate"></small></div>
+        </div>
+        <div class="eval-side">
+          <strong id="eval-value">—</strong>
+          <span id="eval-caption"></span>
+          <span class="scale-note" data-i18n="eval.scale"></span>
+        </div>
+      </div>
+      <div class="balance" aria-hidden="true"><span id="balance-fill"></span><i></i></div>
+      <div class="metrics">
+        <div><small data-i18n="eval.depth"></small><b id="depth">—</b></div>
+        <div><small data-i18n="eval.nodes"></small><b id="nodes">—</b></div>
+        <div><small data-i18n="eval.time"></small><b id="elapsed">—</b></div>
+        <div><small data-i18n="eval.nps"></small><b id="nps">—</b></div>
+      </div>
+      <div class="pv-area"><small data-i18n="eval.pv"></small><div id="pv" class="pv"></div></div>
+      <div class="chart-area"><small data-i18n="eval.chart"></small><svg id="chart" viewBox="0 0 300 70" preserveAspectRatio="none"></svg><span id="chart-empty" class="chart-empty" data-i18n="eval.chartEmpty"></span></div>
+    </section>
+
+    <section class="card tabs-card">
+      <div class="tabs" role="tablist">
+        <button role="tab" data-tab="game" class="active" data-i18n="tab.game"></button>
+        <button role="tab" data-tab="record" data-i18n="tab.record"></button>
+        <button role="tab" data-tab="display" data-i18n="tab.display"></button>
+        <button role="tab" data-tab="network" data-i18n="tab.network"></button>
+        <span class="tab-ink" id="tab-ink"></span>
+      </div>
+
+      <div class="tab-panel active" data-panel="game">
+        <div class="seg-field"><label for="mode" data-i18n="set.mode"></label>
+          <select id="mode"><option value="black" data-i18n="mode.black"></option><option value="white" data-i18n="mode.white"></option><option value="analysis" data-i18n="mode.analysis"></option></select></div>
+        <div class="grid2">
+          <label><span data-i18n="set.rule"></span><select id="rule"><option value="0" data-i18n="rule.0"></option><option value="1" data-i18n="rule.1"></option><option value="2" data-i18n="rule.2"></option></select></label>
+          <label><span data-i18n="set.size"></span><select id="size"><option value="15">15 × 15</option><option value="20">20 × 20</option><option value="9">9 × 9</option></select></label>
+          <label><span data-i18n="set.time"></span><select id="time"><option value="1000"></option><option value="3000" selected></option><option value="10000"></option><option value="30000"></option></select></label>
+          <label><span data-i18n="set.depth"></span><input id="max-depth" type="number" min="1" max="64" value="64"></label>
+          <label class="span2"><span data-i18n="set.nodes"></span><input id="max-nodes" type="number" min="1" max="100000000" value="100000000"></label>
+        </div>
+        <p class="hint" data-i18n="hint.mode"></p>
+      </div>
+
+      <div class="tab-panel" data-panel="record">
+        <div class="field-head"><span data-i18n="tab.record"></span><span id="record-count" class="tag subdued"></span></div>
+        <textarea id="record" spellcheck="false" autocomplete="off" data-i18n-placeholder="rec.placeholder" data-i18n-aria="tab.record"></textarea>
+        <div class="btn-row">
+          <button id="record-copy" class="small" data-i18n="rec.copy"></button>
+          <button id="share-link" class="small" data-i18n="rec.share"></button>
+          <button id="export-png" class="small" data-i18n="rec.png"></button>
+        </div>
+        <p class="hint" data-i18n="rec.hint"></p>
+        <div class="field-head"><span data-i18n="rec.list"></span></div>
+        <ol id="move-list" class="move-list"></ol>
+        <label class="stack"><span data-i18n="view.dir"></span><select id="row-direction"><option value="down" selected data-i18n="view.down"></option><option value="up" data-i18n="view.up"></option></select></label>
+        <div class="field-head"><span data-i18n="view.transform"></span></div>
+        <div class="view-buttons">
+          <button id="rotate-ccw" class="icon-btn" data-i18n-title="view.ccw" data-i18n-aria="view.ccw"><svg viewBox="0 0 24 24"><path d="M4.6 12.4a7.6 7.6 0 1 0 7.6-7.6"/><polyline points="14.9 2.4 12.2 4.8 14.9 7.2"/></svg></button>
+          <button id="rotate-cw" class="icon-btn" data-i18n-title="view.cw" data-i18n-aria="view.cw"><svg viewBox="0 0 24 24"><path d="M19.4 12.4a7.6 7.6 0 1 1-7.6-7.6"/><polyline points="9.5 2.4 12.2 4.8 9.5 7.2"/></svg></button>
+          <button id="flip-vertical" class="icon-btn" data-i18n-title="view.vflip" data-i18n-aria="view.vflip"><svg viewBox="0 0 24 24"><path class="fill" d="M5.4 3.6h13.2v7.2H5.4z"/><path d="M5.4 13.2h13.2v7.2H5.4z"/><line x1="3.2" y1="12" x2="20.8" y2="12" stroke-dasharray="2.6 2.6"/></svg></button>
+          <button id="flip-horizontal" class="icon-btn" data-i18n-title="view.hflip" data-i18n-aria="view.hflip"><svg viewBox="0 0 24 24"><path class="fill" d="M3.6 5.4h7.2v13.2H3.6z"/><path d="M13.2 5.4h7.2v13.2h-7.2z"/><line x1="12" y1="3.2" x2="12" y2="20.8" stroke-dasharray="2.6 2.6"/></svg></button>
+          <button id="reset-view" class="small" data-i18n="view.reset"></button>
+        </div>
+        <p class="hint" data-i18n="view.hint"></p>
+      </div>
+
+      <div class="tab-panel" data-panel="display">
+        <div class="stack"><span data-i18n="disp.theme"></span>
+          <div class="seg" id="theme-seg"><button data-value="kaya" data-i18n="theme.kaya"></button><button data-value="slate" data-i18n="theme.slate"></button></div></div>
+        <div class="stack"><span data-i18n="disp.numbers"></span>
+          <div class="seg" id="numbers-seg"><button data-value="all" data-i18n="num.all"></button><button data-value="recent" data-i18n="num.recent"></button><button data-value="off" data-i18n="num.off"></button></div></div>
+        <div class="stack"><span data-i18n="disp.lang"></span><div class="seg" id="lang-seg"></div></div>
+        <div class="switches">
+          <label class="switch"><input type="checkbox" id="opt-coords"><i></i><span data-i18n="disp.coords"></span></label>
+          <label class="switch"><input type="checkbox" id="opt-hover"><i></i><span data-i18n="disp.hover"></span></label>
+          <label class="switch"><input type="checkbox" id="opt-sound"><i></i><span data-i18n="disp.sound"></span></label>
+          <label class="switch"><input type="checkbox" id="opt-anim"><i></i><span data-i18n="disp.anim"></span></label>
+        </div>
+        <button id="help-open-2" class="small" data-i18n="disp.keys"></button>
+      </div>
+
+      <div class="tab-panel" data-panel="network">
+        <div class="field-head"><span>NNUE</span><span id="evaluator-tag-2" class="tag subdued"></span></div>
+        <p id="weights-name" class="weights-name"></p>
+        <label class="file-drop" id="file-drop"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M4 16v4h16v-4"/></svg><span data-i18n="net.local"></span><input id="weights-file" type="file" accept=".nnue,application/octet-stream"></label>
+        <div class="url-row"><input id="weights-url" type="url" data-i18n-placeholder="net.url" data-i18n-aria="net.url"><button id="load-url" data-i18n="net.load"></button></div>
+        <button id="use-hce" class="small" data-i18n="net.hce"></button>
+        <p class="hint" data-i18n="net.hint"></p>
+      </div>
+    </section>
   </aside>
-  <section class="protocol-panel"><details><summary>协议控制台 <span>查看同一引擎的 Yixin 命令与响应</span></summary><pre id="protocol-log" aria-live="off"></pre><form id="command-form"><input id="command-input" placeholder="例如 ABOUT、YXSHOWFORBID" aria-label="Yixin 协议命令"><button>发送</button><button type="button" id="clear-log">清空</button></form></details></section>
+
 </main>
-<footer><span>NOLOS NNUE</span><span>Rust · WASM · 自生成训练数据</span><a href="https://github.com/VEXLife/NolosNNUE" id="source-link">源代码</a></footer>
+
+<section class="credits" id="credits">
+  <div class="credit-card">
+    <span class="credit-kicker" data-i18n="credits.kicker"></span>
+    <h2 data-i18n="credits.title"></h2>
+    <div class="credit-grid">
+      <div class="credit"><small data-i18n="credits.uiRole"></small><b>Claude Opus 5.5</b><span data-i18n="credits.uiBy"></span></div>
+      <div class="credit"><small data-i18n="credits.engineRole"></small><b>GPT-6.1 Sol</b><span data-i18n="credits.engineBy"></span></div>
+      <div class="credit"><small data-i18n="credits.inspiredRole"></small><b><a href="https://github.com/dhbloo/rapfi" target="_blank" rel="noopener">Rapfi ↗</a></b><span data-i18n="credits.inspired"></span></div>
+    </div>
+  </div>
+</section>
+
+<footer class="footer"><span>NOLOS NNUE</span><span data-i18n="footer.tag"></span><a href="https://github.com/VEXLife/NolosNNUE" id="source-link" data-i18n="footer.source"></a></footer>
+
+<dialog id="help-dialog">
+  <h2 data-i18n="keys.title"></h2>
+  <dl id="keys-list"></dl>
+  <form method="dialog"><button class="primary" data-i18n="btn.close"></button></form>
+</dialog>
+
 <script type="module" src="app.js"></script>
 </body>
 </html>

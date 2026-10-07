@@ -32,9 +32,13 @@ function pump() {
 onmessage = async ({ data }) => {
   try {
     if (data.type === 'init') {
-      const response = await fetch(new URL('nolos_nnue.wasm', import.meta.url), { cache: 'no-cache' });
-      if (!response.ok) throw Error(`WASM download failed: ${response.status}`);
-      const instance = await WebAssembly.instantiate(await response.arrayBuffer(), { host: { output, now_ms: () => performance.now() } });
+      let bytes = data.wasm;
+      if (!bytes) {
+        const response = await fetch(new URL('nolos_nnue.wasm', import.meta.url), { cache: 'no-cache' });
+        if (!response.ok) throw Error(`WASM download failed: ${response.status}`);
+        bytes = await response.arrayBuffer();
+      }
+      const instance = await WebAssembly.instantiate(bytes, { host: { output, now_ms: () => performance.now() } });
       wasm = instance.instance.exports; memory = wasm.memory;
       wasm.engine_init(); postMessage({ type: 'ready' });
     } else if (data.type === 'commands') {
