@@ -488,17 +488,23 @@ impl Search {
             });
         }
         let forced = candidates.len() == 1 && self.board.cached_would_win(candidates[0], 3 - side);
+        let fours: Vec<[bool; 2]> = if self.board.rule == Rule::Freestyle {
+            candidates.iter().map(|&p| self.board.could_create_four_both(p)).collect()
+        } else {
+            Vec::new()
+        };
+        let (me, them) = (side as usize - 1, 2 - side as usize);
         if self.board.rule == Rule::Freestyle {
             // Check all three-ply wins before any five-ply certificate.
-            for &p in &candidates {
-                if let Some((a, b)) = self.board.could_create_four(p, side).then(|| self.double_five(p, side)).flatten() {
+            for (k, &p) in candidates.iter().enumerate() {
+                if let Some((a, b)) = fours[k][me].then(|| self.double_five(p, side)).flatten() {
                     self.stack[i].best_move = Some(p);
                     self.stack[i].pv = vec![p, a, b];
                     return Some(MATE - ply as i32 - 3);
                 }
             }
-            for &p in &candidates {
-                if self.board.could_create_four(p, side) && self.compound_seed(p, side) {
+            for (k, &p) in candidates.iter().enumerate() {
+                if fours[k][me] && self.compound_seed(p, side) {
                     if let Some(pv) = self.four_then_double_five(p, side) {
                         self.stack[i].best_move = Some(p);
                         self.stack[i].pv = pv;
@@ -515,8 +521,8 @@ impl Search {
         let mut threat_defense = false;
         if self.board.rule == Rule::Freestyle && !forced {
             let mut threats = Vec::new();
-            for &p in &candidates {
-                if self.board.could_create_four(p, 3 - side) && self.double_five(p, 3 - side).is_some() { threats.push(p); }
+            for (k, &p) in candidates.iter().enumerate() {
+                if fours[k][them] && self.double_five(p, 3 - side).is_some() { threats.push(p); }
             }
             if !threats.is_empty() {
                 threat_defense = true;

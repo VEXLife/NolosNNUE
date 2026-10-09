@@ -57,6 +57,8 @@ pub struct Board {
     pub hash: u64,
     geometry: Arc<Geometry>,
     patterns: Vec<usize>,
+    /// Per cell and color: windows whose pattern makes the cell a four candidate.
+    four_counts: Vec<[u8; 2]>,
     neighbor_counts: Vec<u8>,
     // Radius-two coverage, including occupied cells so raw tactical probes
     // can still filter against the current cells without mutating this set.
@@ -106,6 +108,28 @@ fn pattern_score(id: usize) -> i32 {
         v
     };
     score(1) - score(2)
+}
+
+fn four_masks() -> &'static [[u8; 2]] {
+        static MASKS: std::sync::OnceLock<Vec<[u8; 2]>> = std::sync::OnceLock::new();
+        MASKS.get_or_init(|| (0..FEATURES).map(|id| {
+            let mut masks = [0; 2];
+            for color in 1..=2 {
+                for offset in 0..=1 {
+                    let mut stones = 0;
+                    let mut empty = 0;
+                    let mut blocked = false;
+                    for j in offset..offset + 5 {
+                        let c = (id >> (j * 2)) & 3;
+                        if c == color { stones += 1; }
+                        else if c == 0 { empty |= 1 << j; }
+                        else { blocked = true; }
+                    }
+                    if !blocked && stones >= 3 { masks[color - 1] |= empty; }
+                }
+            }
+            masks
+        }).collect()).as_slice()
 }
 
 impl Board {
@@ -249,6 +273,7 @@ impl Board {
                 win_dependents,
             }),
             patterns,
+            four_counts: vec![[0; 2]; size * size],
             neighbor_counts: vec![0; size * size],
             candidate_bits: [0; 7],
             win_masks: vec![[[0; 2]; 2]; size * size],
@@ -379,6 +404,17 @@ impl Board {
                     state, net, new_feature, old_feature, new_inv, old_inv,
                 );
             }
+            let masks = four_masks();
+            let (om, nm) = (masks[old], masks[new]);
+            if om != nm {
+                for (j, &q) in self.geometry.windows[w].iter().enumerate() {
+                    if q < 0 { continue; }
+                    let counts = &mut self.four_counts[q as usize];
+                    for c in 0..2 {
+                        counts[c] = counts[c] + (nm[c] >> j & 1) - (om[c] >> j & 1);
+                    }
+                }
+            }
             self.patterns[w] = new;
         }
     }
@@ -467,27 +503,15 @@ impl Board {
     /// temporary cell probes. Unlike an evaluation threshold it cannot miss
     /// a four because another pattern's score decreases.
     pub(crate) fn could_create_four(&self, p: usize, color: u8) -> bool {
-        static MASKS: std::sync::OnceLock<Vec<[u8; 2]>> = std::sync::OnceLock::new();
-        let masks = MASKS.get_or_init(|| (0..FEATURES).map(|id| {
-            let mut masks = [0; 2];
-            for color in 1..=2 {
-                for offset in 0..=1 {
-                    let mut stones = 0;
-                    let mut empty = 0;
-                    let mut blocked = false;
-                    for j in offset..offset + 5 {
-                        let c = (id >> (j * 2)) & 3;
-                        if c == color { stones += 1; }
-                        else if c == 0 { empty |= 1 << j; }
-                        else { blocked = true; }
-                    }
-                    if !blocked && stones >= 3 { masks[color - 1] |= empty; }
-                }
-            }
-            masks
-        }).collect());
+        let masks = four_masks();
         self.geometry.affected[p].iter().any(|&(w, shift)|
             masks[self.patterns[w]][color as usize - 1] & (1 << (shift / 2)) != 0)
+    }
+
+    /// Both colors in one pass over the affected windows; index 0 is black.
+    pub(crate) fn could_create_four_both(&self, p: usize) -> [bool; 2] {
+        let c = self.four_counts[p];
+        [c[0] > 0, c[1] > 0]
     }
 
     pub fn at(&self, x: isize, y: isize) -> u8 {

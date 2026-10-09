@@ -64,7 +64,7 @@ fn work() -> Result<(), String> {
                 if pair >= pairs {
                     break;
                 }
-                let open = opening(mix64(seed ^ pair as u64), size, rule);
+                let open = opening(mix64(seed ^ mix64(pair as u64)), size, rule);
                 let mut outcomes = Vec::new();
                 for candidate_side in [1, 2] {
                     cp.reset();
